@@ -1,0 +1,15 @@
+{
+  "created_at": "2026-01-29T12:09:43.429Z",
+  "trigger": "auto",
+  "active_modes": {
+    "ultrawork": {
+      "original_prompt": "I want to pull multiple repositories from github into this folder to build a monorepo:\n\ndrseanwing/foam\ndrseanwing/researchplanner\ndrseanwing/ralphgh\ndrseanwing/critlit\n\nThey all share a common architecture and infrastructure.\n\nSo, using ralph ulw, bring in these four repositories in subdirectories, and perform a comprehensive analysis of all four code-bases, identifying common architecture which can be extracted to a core \"pipeline orchestrator\" module. COnsider the ramifications of such a retooling and identify potential risks and errors which need to be handled.\n\nDevelop a granular implementation plan for the mono-repo version of this application including planning, building, validating, CI tests, code review checkpoints and quality gates, documentation and deployment (in a docker rootless environment, with a tight range of external ports exposed between 5810 and 5850).\n\nCommit atomically."
+    }
+  },
+  "todo_summary": {
+    "pending": 0,
+    "in_progress": 0,
+    "completed": 0
+  },
+  "wisdom_exported": false
+}
