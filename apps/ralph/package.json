@@ -11,7 +11,9 @@
     "test:ping": "node tests/agent-ping.mjs"
   },
   "dependencies": {
-    "@clack/prompts": "^0.7.0"
+    "@clack/prompts": "^0.7.0",
+    "@pipelines/config": "workspace:*",
+    "@pipelines/logging": "workspace:*"
   },
   "license": "MIT"
 }

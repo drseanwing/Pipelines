@@ -1,0 +1,14 @@
+{
+  "name": "@pipelines/foam",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FOAM - Medical Education Content Pipeline",
+  "type": "module",
+  "dependencies": {
+    "@pipelines/logging": "workspace:*",
+    "@pipelines/retry": "workspace:*",
+    "@pipelines/validation": "workspace:*",
+    "@pipelines/n8n-utils": "workspace:*",
+    "@pipelines/llm-client": "workspace:*"
+  }
+}

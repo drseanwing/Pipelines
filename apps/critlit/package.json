@@ -1,0 +1,16 @@
+{
+  "name": "@pipelines/critlit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CritLit - Systematic Literature Review Pipeline",
+  "type": "module",
+  "dependencies": {
+    "@pipelines/logging": "workspace:*",
+    "@pipelines/retry": "workspace:*",
+    "@pipelines/validation": "workspace:*",
+    "@pipelines/checkpoint": "workspace:*",
+    "@pipelines/n8n-utils": "workspace:*",
+    "@pipelines/pubmed": "workspace:*",
+    "@pipelines/database": "workspace:*"
+  }
+}

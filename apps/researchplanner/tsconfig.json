@@ -27,5 +27,15 @@
     "dist",
     "**/*.test.ts",
     "**/*.spec.ts"
+  ],
+  "references": [
+    { "path": "../../packages/core/config" },
+    { "path": "../../packages/core/logging" },
+    { "path": "../../packages/core/retry" },
+    { "path": "../../packages/core/validation" },
+    { "path": "../../packages/core/database" },
+    { "path": "../../packages/core/llm-client" },
+    { "path": "../../packages/core/checkpoint" },
+    { "path": "../../packages/core/pubmed" }
   ]
 }
