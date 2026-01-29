@@ -1,0 +1,518 @@
+{
+  "name": "QI-Research Pipeline: Methodology Stage",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "methodology-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract project and research data for methodology development\nconst input = $input.first().json;\n\nif (!input.project || !input.research) {\n  throw new Error('Missing required project or research data from previous stages');\n}\n\nconst project = input.project;\nconst research = input.research;\n\nreturn [{\n  json: {\n    project_id: project.id,\n    project: project,\n    research: research,\n    classification: project.classification,\n    intake: project.intake,\n    gap_analysis: research.gap_analysis,\n    evidence_synthesis: research.evidence_synthesis,\n    evidence_strength: research.evidence_strength\n  }\n}];"
+      },
+      "id": "extract-context",
+      "name": "Extract Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "maxTokens": 3000,
+          "temperature": 0.3
+        },
+        "messages": {
+          "messageValues": [
+            {
+              "message": "={{ `You are an expert in clinical research methodology. Determine the optimal study design for this project.\n\n## Project Classification\nType: ${$json.classification.project_type}\nSuggested Designs: ${$json.classification.suggested_designs.join(', ')}\nReporting Guideline: ${$json.project.frameworks.reporting_guideline}\n\n## Clinical Problem\n${$json.intake.clinical_problem}\n\n## Target Population\n${$json.intake.target_population}\n\n## Setting\n${$json.intake.setting}\n\n## Intended Outcomes\n${$json.intake.intended_outcomes}\n\n## Evidence Gaps to Address\n${JSON.stringify($json.gap_analysis.identified_gaps)}\n\n## Evidence Strength from Literature\n${$json.evidence_strength}\n\n## Timeline Constraints\n${$json.intake.timeline_constraint ? JSON.stringify($json.intake.timeline_constraint) : 'No specific constraints'}\n\n## Study Design Options by Type\n\n### QI Projects\n- PDSA_CYCLE: Plan-Do-Study-Act iterative improvement\n- IHI_MODEL: Institute for Healthcare Improvement model\n- LEAN_SIX_SIGMA: Process improvement methodology\n- PRE_POST: Before-after measurement\n\n### Research - Interventional\n- RCT: Randomised controlled trial\n- CLUSTER_RCT: Cluster randomised trial\n- STEPPED_WEDGE: Stepped wedge cluster design\n- QUASI_EXPERIMENTAL: Non-randomised intervention study\n- PRE_POST_CONTROLLED: Controlled before-after study\n\n### Research - Observational\n- COHORT: Prospective or retrospective cohort\n- CASE_CONTROL: Case-control study\n- CROSS_SECTIONAL: Point-in-time survey\n\n### Research - Other\n- QUALITATIVE: Interviews, focus groups, thematic analysis\n- MIXED_METHODS: Combined quantitative and qualitative\n- SYSTEMATIC_REVIEW: Systematic review or meta-analysis\n\n## Task\nDetermine the optimal study design with full justification.\n\nRespond ONLY with valid JSON:\n{\n  \"study_design\": {\n    \"type\": \"design type from options above\",\n    \"subtype\": \"specific variant if applicable\",\n    \"reporting_guideline\": \"CONSORT|STROBE|SQUIRE|etc\",\n    \"is_randomised\": true|false,\n    \"is_blinded\": true|false,\n    \"blinding_type\": \"single|double|none|not_applicable\",\n    \"control_type\": \"active|placebo|usual_care|historical|none\",\n    \"requires_sample_size\": true|false,\n    \"justification\": \"detailed explanation of why this design is optimal\"\n  },\n  \"design_alternatives\": [\n    {\n      \"type\": \"alternative design\",\n      \"pros\": [\"advantage 1\"],\n      \"cons\": [\"disadvantage 1\"],\n      \"why_not_chosen\": \"reason\"\n    }\n  ],\n  \"feasibility_assessment\": {\n    \"overall\": \"high|medium|low\",\n    \"considerations\": [\"consideration 1\", \"consideration 2\"]\n  }\n}` }}"
+            }
+          ]
+        }
+      },
+      "id": "determine-design",
+      "name": "LLM: Determine Study Design",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [690, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credentials",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse study design response\nconst input = $input.first().json;\nconst llmResponse = $('LLM: Determine Study Design').first().json.message.content;\n\nlet designResult;\ntry {\n  let jsonStr = llmResponse;\n  const jsonMatch = llmResponse.match(/```json\\n?([\\s\\S]*?)\\n?```/);\n  if (jsonMatch) {\n    jsonStr = jsonMatch[1];\n  }\n  designResult = JSON.parse(jsonStr);\n} catch (e) {\n  throw new Error(`Failed to parse study design: ${e.message}`);\n}\n\nreturn [{\n  json: {\n    ...input,\n    study_design: designResult.study_design,\n    design_alternatives: designResult.design_alternatives,\n    feasibility_assessment: designResult.feasibility_assessment\n  }\n}];"
+      },
+      "id": "parse-design",
+      "name": "Parse Study Design",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [910, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "maxTokens": 3000,
+          "temperature": 0.3
+        },
+        "messages": {
+          "messageValues": [
+            {
+              "message": "={{ `You are an expert in clinical research methodology. Define participant criteria and sample size for this study.\n\n## Study Design\nType: ${$json.study_design.type}\nIs Randomised: ${$json.study_design.is_randomised}\nRequires Sample Size Calculation: ${$json.study_design.requires_sample_size}\n\n## Target Population\n${$json.intake.target_population}\n\n## Clinical Setting\n${$json.intake.setting}\n\n## Evidence Base\nEvidence Strength: ${$json.evidence_strength}\nKey Gaps: ${JSON.stringify($json.gap_analysis.identified_gaps)}\n\n## Task\nDefine comprehensive participant criteria and calculate sample size if required.\n\n### Sample Size Considerations\n- Use standard parameters: alpha=0.05, power=0.80\n- Consider clinically meaningful differences\n- Account for expected attrition (typically 10-20%)\n- For QI projects, sample size may be based on available population\n\nRespond ONLY with valid JSON:\n{\n  \"participants\": {\n    \"inclusion_criteria\": [\n      {\n        \"criterion\": \"specific measurable criterion\",\n        \"rationale\": \"why this criterion is needed\",\n        \"measurement\": \"how this will be assessed\"\n      }\n    ],\n    \"exclusion_criteria\": [\n      {\n        \"criterion\": \"specific exclusion\",\n        \"rationale\": \"why excluded\",\n        \"measurement\": \"how assessed\"\n      }\n    ],\n    \"sample_size\": {\n      \"target\": number or null,\n      \"calculation_method\": \"method used or 'not_applicable'\",\n      \"assumptions\": {\n        \"effect_size\": number or null,\n        \"effect_size_source\": \"where estimate came from\",\n        \"power\": 0.80,\n        \"alpha\": 0.05,\n        \"attrition_rate\": 0.15,\n        \"additional_assumptions\": [\"any other assumptions\"]\n      },\n      \"justification\": \"detailed explanation\",\n      \"minimum_required\": number or null,\n      \"target_with_attrition\": number or null\n    },\n    \"recruitment_strategy\": {\n      \"method\": \"description of recruitment approach\",\n      \"sites\": [\"site descriptions\"],\n      \"estimated_duration\": \"time estimate\",\n      \"feasibility_justification\": \"why this is achievable\",\n      \"screening_process\": \"how eligibility will be confirmed\"\n    },\n    \"capacity_issues\": true|false,\n    \"vulnerable_population\": true|false,\n    \"vulnerability_considerations\": \"if vulnerable, what considerations apply\"\n  }\n}` }}"
+            }
+          ]
+        }
+      },
+      "id": "define-participants",
+      "name": "LLM: Define Participants & Sample Size",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [1130, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credentials",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse participants response\nconst input = $input.first().json;\nconst llmResponse = $('LLM: Define Participants & Sample Size').first().json.message.content;\n\nlet participantsResult;\ntry {\n  let jsonStr = llmResponse;\n  const jsonMatch = llmResponse.match(/```json\\n?([\\s\\S]*?)\\n?```/);\n  if (jsonMatch) {\n    jsonStr = jsonMatch[1];\n  }\n  participantsResult = JSON.parse(jsonStr);\n} catch (e) {\n  throw new Error(`Failed to parse participants: ${e.message}`);\n}\n\nreturn [{\n  json: {\n    ...input,\n    participants: participantsResult.participants\n  }\n}];"
+      },
+      "id": "parse-participants",
+      "name": "Parse Participants",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1350, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "maxTokens": 2500,
+          "temperature": 0.3
+        },
+        "messages": {
+          "messageValues": [
+            {
+              "message": "={{ `You are an expert in clinical research methodology. Define outcomes for this study.\n\n## Study Design\nType: ${$json.study_design.type}\nReporting Guideline: ${$json.study_design.reporting_guideline}\n\n## Intended Outcomes from Project Brief\n${$json.intake.intended_outcomes}\n\n## Evidence Gaps\n${JSON.stringify($json.gap_analysis.identified_gaps)}\n\n## Guidelines for Outcome Definition\n1. Primary outcome should be SINGLE and clearly defined\n2. Secondary outcomes should be limited (3-5 recommended)\n3. All outcomes must have specific measurement tools/methods\n4. Timing of measurements must be specified\n5. For comparative studies, define clinically meaningful difference\n\n## Task\nDefine primary and secondary outcomes with full specifications.\n\nRespond ONLY with valid JSON:\n{\n  \"outcomes\": {\n    \"primary\": {\n      \"name\": \"outcome name\",\n      \"definition\": \"precise operational definition\",\n      \"measurement_tool\": \"specific tool or method\",\n      \"measurement_timing\": \"when measured\",\n      \"measurement_frequency\": \"how often\",\n      \"clinically_meaningful_difference\": number or null,\n      \"mcid_source\": \"source for MCID if applicable\",\n      \"data_type\": \"continuous|categorical|binary|time-to-event\",\n      \"expected_baseline\": \"baseline value if known\",\n      \"direction_of_benefit\": \"higher_better|lower_better|target_range\"\n    },\n    \"secondary\": [\n      {\n        \"name\": \"outcome name\",\n        \"definition\": \"operational definition\",\n        \"measurement_tool\": \"tool or method\",\n        \"measurement_timing\": \"when measured\",\n        \"data_type\": \"continuous|categorical|binary|time-to-event\",\n        \"rationale\": \"why this secondary outcome matters\"\n      }\n    ],\n    \"safety_outcomes\": [\n      {\n        \"name\": \"safety outcome if applicable\",\n        \"definition\": \"definition\",\n        \"monitoring_approach\": \"how monitored\"\n      }\n    ],\n    \"process_outcomes\": [\n      {\n        \"name\": \"process measure if applicable\",\n        \"definition\": \"definition\"\n      }\n    ]\n  }\n}` }}"
+            }
+          ]
+        }
+      },
+      "id": "define-outcomes",
+      "name": "LLM: Define Outcomes",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [1570, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credentials",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse outcomes response\nconst input = $input.first().json;\nconst llmResponse = $('LLM: Define Outcomes').first().json.message.content;\n\nlet outcomesResult;\ntry {\n  let jsonStr = llmResponse;\n  const jsonMatch = llmResponse.match(/```json\\n?([\\s\\S]*?)\\n?```/);\n  if (jsonMatch) {\n    jsonStr = jsonMatch[1];\n  }\n  outcomesResult = JSON.parse(jsonStr);\n} catch (e) {\n  throw new Error(`Failed to parse outcomes: ${e.message}`);\n}\n\nreturn [{\n  json: {\n    ...input,\n    outcomes: outcomesResult.outcomes\n  }\n}];"
+      },
+      "id": "parse-outcomes",
+      "name": "Parse Outcomes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1790, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "maxTokens": 3000,
+          "temperature": 0.3
+        },
+        "messages": {
+          "messageValues": [
+            {
+              "message": "={{ `You are an expert in clinical research methodology. Design the study procedures and data collection plan.\n\n## Study Design\nType: ${$json.study_design.type}\nIs Randomised: ${$json.study_design.is_randomised}\nBlinding: ${$json.study_design.blinding_type}\n\n## Clinical Setting\n${$json.intake.setting}\n\n## Participants\nInclusion: ${$json.participants.inclusion_criteria.map(c => c.criterion).join('; ')}\nExclusion: ${$json.participants.exclusion_criteria.map(c => c.criterion).join('; ')}\nTarget N: ${$json.participants.sample_size.target || 'Not specified'}\n\n## Outcomes\nPrimary: ${$json.outcomes.primary.name} - ${$json.outcomes.primary.measurement_tool}\nSecondary: ${$json.outcomes.secondary.map(o => o.name).join(', ')}\n\n## Task\nDesign comprehensive procedures and data collection methods.\n\nRespond ONLY with valid JSON:\n{\n  \"procedures\": {\n    \"overview\": \"brief description of overall study flow\",\n    \"phases\": [\n      {\n        \"phase_name\": \"e.g., Screening, Baseline, Intervention, Follow-up\",\n        \"duration\": \"expected duration\",\n        \"activities\": [\"activity 1\", \"activity 2\"],\n        \"responsible_party\": \"who performs these activities\"\n      }\n    ],\n    \"intervention_description\": \"detailed intervention protocol if applicable\",\n    \"control_description\": \"control/comparator protocol if applicable\",\n    \"randomisation_procedure\": \"method if randomised, otherwise null\",\n    \"blinding_procedure\": \"how blinding maintained if applicable\",\n    \"quality_assurance\": [\n      {\n        \"measure\": \"QA measure\",\n        \"frequency\": \"how often\",\n        \"responsible\": \"who\"\n      }\n    ],\n    \"protocol_deviations\": \"how deviations will be handled\",\n    \"withdrawal_procedures\": \"how withdrawals will be managed\"\n  },\n  \"data_collection\": {\n    \"data_types\": [\"type 1\", \"type 2\"],\n    \"collection_methods\": [\n      {\n        \"data_element\": \"what is collected\",\n        \"method\": \"how collected\",\n        \"timing\": \"when collected\",\n        \"source\": \"where data comes from\",\n        \"responsible\": \"who collects\"\n      }\n    ],\n    \"data_entry\": \"how data will be entered/managed\",\n    \"data_quality_checks\": [\"check 1\", \"check 2\"],\n    \"includes_identifiable_data\": true|false,\n    \"identifiable_elements\": [\"element if applicable\"],\n    \"data_linkage\": \"description if linking datasets\"\n  }\n}` }}"
+            }
+          ]
+        }
+      },
+      "id": "design-procedures",
+      "name": "LLM: Design Procedures",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [2010, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credentials",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse procedures response\nconst input = $input.first().json;\nconst llmResponse = $('LLM: Design Procedures').first().json.message.content;\n\nlet proceduresResult;\ntry {\n  let jsonStr = llmResponse;\n  const jsonMatch = llmResponse.match(/```json\\n?([\\s\\S]*?)\\n?```/);\n  if (jsonMatch) {\n    jsonStr = jsonMatch[1];\n  }\n  proceduresResult = JSON.parse(jsonStr);\n} catch (e) {\n  throw new Error(`Failed to parse procedures: ${e.message}`);\n}\n\nreturn [{\n  json: {\n    ...input,\n    procedures: proceduresResult.procedures,\n    data_collection: proceduresResult.data_collection\n  }\n}];"
+      },
+      "id": "parse-procedures",
+      "name": "Parse Procedures",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2230, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "maxTokens": 2500,
+          "temperature": 0.3
+        },
+        "messages": {
+          "messageValues": [
+            {
+              "message": "={{ `You are an expert biostatistician. Develop an analysis plan for this study.\n\n## Study Design\nType: ${$json.study_design.type}\nIs Randomised: ${$json.study_design.is_randomised}\n\n## Sample Size\nTarget N: ${$json.participants.sample_size.target || 'Not specified'}\nPower: ${$json.participants.sample_size.assumptions?.power || 0.80}\nAlpha: ${$json.participants.sample_size.assumptions?.alpha || 0.05}\n\n## Outcomes\nPrimary: ${$json.outcomes.primary.name}\nData Type: ${$json.outcomes.primary.data_type}\nSecondary: ${$json.outcomes.secondary.map(o => o.name + ' (' + o.data_type + ')').join(', ')}\n\n## Task\nDevelop a comprehensive statistical analysis plan.\n\nRespond ONLY with valid JSON:\n{\n  \"analysis_plan\": {\n    \"analysis_populations\": [\n      {\n        \"name\": \"e.g., ITT, Per-Protocol, Safety\",\n        \"definition\": \"who is included\",\n        \"primary_population\": true|false\n      }\n    ],\n    \"descriptive_analysis\": {\n      \"baseline_characteristics\": \"how baseline will be summarised\",\n      \"tables_planned\": [\"Table 1: Baseline characteristics\", etc]\n    },\n    \"primary_analysis\": {\n      \"outcome\": \"primary outcome name\",\n      \"statistical_method\": \"specific test/model\",\n      \"effect_measure\": \"e.g., mean difference, odds ratio, hazard ratio\",\n      \"confidence_level\": 0.95,\n      \"hypothesis\": \"null hypothesis statement\",\n      \"analysis_software\": \"R/Stata/SPSS/etc\"\n    },\n    \"secondary_analyses\": [\n      {\n        \"outcome\": \"secondary outcome\",\n        \"statistical_method\": \"method\",\n        \"multiplicity_adjustment\": \"adjustment if any\"\n      }\n    ],\n    \"subgroup_analyses\": [\n      {\n        \"subgroup\": \"subgroup definition\",\n        \"rationale\": \"why this subgroup\",\n        \"method\": \"statistical approach\"\n      }\n    ],\n    \"sensitivity_analyses\": [\n      {\n        \"name\": \"sensitivity analysis name\",\n        \"purpose\": \"what it tests\",\n        \"method\": \"approach\"\n      }\n    ],\n    \"missing_data\": {\n      \"anticipated_pattern\": \"MCAR/MAR/MNAR\",\n      \"primary_approach\": \"how handled in primary analysis\",\n      \"sensitivity_approaches\": [\"alternative methods\"]\n    },\n    \"interim_analyses\": {\n      \"planned\": true|false,\n      \"timing\": \"when if applicable\",\n      \"stopping_rules\": \"rules if applicable\"\n    }\n  }\n}` }}"
+            }
+          ]
+        }
+      },
+      "id": "develop-analysis",
+      "name": "LLM: Develop Analysis Plan",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [2450, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credentials",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse analysis plan response\nconst input = $input.first().json;\nconst llmResponse = $('LLM: Develop Analysis Plan').first().json.message.content;\n\nlet analysisResult;\ntry {\n  let jsonStr = llmResponse;\n  const jsonMatch = llmResponse.match(/```json\\n?([\\s\\S]*?)\\n?```/);\n  if (jsonMatch) {\n    jsonStr = jsonMatch[1];\n  }\n  analysisResult = JSON.parse(jsonStr);\n} catch (e) {\n  throw new Error(`Failed to parse analysis plan: ${e.message}`);\n}\n\nreturn [{\n  json: {\n    ...input,\n    analysis_plan: analysisResult.analysis_plan\n  }\n}];"
+      },
+      "id": "parse-analysis",
+      "name": "Parse Analysis Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2670, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "maxTokens": 2000,
+          "temperature": 0.3
+        },
+        "messages": {
+          "messageValues": [
+            {
+              "message": "={{ `You are an expert project manager for clinical research. Generate a detailed project timeline.\n\n## Project Type\n${$json.classification.project_type}\n\n## Study Design\n${$json.study_design.type}\n\n## Sample Size and Recruitment\nTarget N: ${$json.participants.sample_size.target || 'Not specified'}\nEstimated Recruitment Duration: ${$json.participants.recruitment_strategy.estimated_duration}\n\n## Study Phases\n${$json.procedures.phases.map(p => p.phase_name + ': ' + p.duration).join(', ')}\n\n## Timeline Constraints\n${$json.intake.timeline_constraint ? JSON.stringify($json.intake.timeline_constraint) : 'No specific constraints'}\n\n## Grant Target (if applicable)\n${$json.intake.grant_target || 'Not specified'}\n\n## Task\nGenerate a realistic project timeline with milestones.\n\nRespond ONLY with valid JSON:\n{\n  \"timeline\": {\n    \"total_duration\": \"e.g., 18 months\",\n    \"start_date\": \"estimated or TBD\",\n    \"end_date\": \"estimated or TBD\",\n    \"phases\": [\n      {\n        \"phase\": \"phase name\",\n        \"start_month\": 1,\n        \"end_month\": 3,\n        \"duration_months\": 3,\n        \"activities\": [\"activity 1\", \"activity 2\"],\n        \"deliverables\": [\"deliverable 1\"],\n        \"dependencies\": [\"what must be complete first\"]\n      }\n    ],\n    \"milestones\": [\n      {\n        \"name\": \"milestone name\",\n        \"target_month\": 6,\n        \"description\": \"what this milestone represents\",\n        \"criteria\": \"how we know it's achieved\"\n      }\n    ],\n    \"critical_path\": [\"phase 1\", \"phase 2\"],\n    \"risk_buffer\": \"time built in for delays\",\n    \"key_dates\": {\n      \"ethics_submission\": \"Month X\",\n      \"recruitment_start\": \"Month X\",\n      \"recruitment_end\": \"Month X\",\n      \"data_lock\": \"Month X\",\n      \"primary_analysis\": \"Month X\",\n      \"manuscript_submission\": \"Month X\"\n    }\n  }\n}` }}"
+            }
+          ]
+        }
+      },
+      "id": "generate-timeline",
+      "name": "LLM: Generate Timeline",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [2890, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credentials",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse timeline and build complete methodology object\nconst input = $input.first().json;\nconst llmResponse = $('LLM: Generate Timeline').first().json.message.content;\n\nlet timelineResult;\ntry {\n  let jsonStr = llmResponse;\n  const jsonMatch = llmResponse.match(/```json\\n?([\\s\\S]*?)\\n?```/);\n  if (jsonMatch) {\n    jsonStr = jsonMatch[1];\n  }\n  timelineResult = JSON.parse(jsonStr);\n} catch (e) {\n  throw new Error(`Failed to parse timeline: ${e.message}`);\n}\n\n// Build complete methodology object\nconst methodology = {\n  study_design: input.study_design,\n  design_alternatives: input.design_alternatives,\n  feasibility_assessment: input.feasibility_assessment,\n  setting_sites: [{\n    name: input.intake.setting,\n    type: 'primary',\n    estimated_participants: input.participants.sample_size.target\n  }],\n  participants: input.participants,\n  outcomes: input.outcomes,\n  procedures: input.procedures,\n  data_collection: input.data_collection,\n  analysis_plan: input.analysis_plan,\n  timeline: timelineResult.timeline\n};\n\nreturn [{\n  json: {\n    project_id: input.project_id,\n    project: input.project,\n    research: input.research,\n    methodology: methodology\n  }\n}];"
+      },
+      "id": "build-methodology",
+      "name": "Build Methodology",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3110, 300]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": "public",
+        "table": "projects",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "methodology": "={{ JSON.stringify($json.methodology) }}",
+            "status": "METHODOLOGY_COMPLETE",
+            "updated_at": "={{ new Date().toISOString() }}"
+          }
+        },
+        "where": {
+          "values": [
+            {
+              "column": "id",
+              "value": "={{ $json.project_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "update-project",
+      "name": "Update Project Record",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [3330, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "QI Pipeline Database"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "audit_log",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "project_id": "={{ $json.project_id }}",
+            "timestamp": "={{ new Date().toISOString() }}",
+            "action": "METHODOLOGY_COMPLETE",
+            "actor": "methodology_workflow",
+            "details": "={{ JSON.stringify({ study_design: $json.methodology.study_design.type, sample_size: $json.methodology.participants.sample_size.target, timeline: $json.methodology.timeline.total_duration }) }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "log-audit",
+      "name": "Log Audit Entry",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [3550, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "QI Pipeline Database"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare final output for return to master workflow\nconst buildOutput = $('Build Methodology').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    project_id: buildOutput.project_id,\n    status: 'METHODOLOGY_COMPLETE',\n    \n    // Methodology summary\n    methodology_summary: {\n      study_design: buildOutput.methodology.study_design.type,\n      reporting_guideline: buildOutput.methodology.study_design.reporting_guideline,\n      sample_size: buildOutput.methodology.participants.sample_size.target,\n      primary_outcome: buildOutput.methodology.outcomes.primary.name,\n      total_duration: buildOutput.methodology.timeline.total_duration\n    },\n    \n    // Full methodology for next stage\n    methodology: buildOutput.methodology,\n    \n    // Pass through previous stage data\n    research: buildOutput.research,\n    project: buildOutput.project,\n    \n    // Workflow metadata\n    workflow_metadata: {\n      stage: 'methodology',\n      completed_at: new Date().toISOString(),\n      next_stage: 'ethics',\n      requires_checkpoint: true,\n      checkpoint_items: [\n        'Confirm study design appropriateness',\n        'Validate sample size assumptions',\n        'Review outcome measures feasibility',\n        'Approve data collection approach',\n        'Verify timeline realism'\n      ]\n    }\n  }\n}];"
+      },
+      "id": "prepare-output",
+      "name": "Prepare Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3770, 300]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Context": {
+      "main": [
+        [
+          {
+            "node": "LLM: Determine Study Design",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM: Determine Study Design": {
+      "main": [
+        [
+          {
+            "node": "Parse Study Design",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Study Design": {
+      "main": [
+        [
+          {
+            "node": "LLM: Define Participants & Sample Size",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM: Define Participants & Sample Size": {
+      "main": [
+        [
+          {
+            "node": "Parse Participants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Participants": {
+      "main": [
+        [
+          {
+            "node": "LLM: Define Outcomes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM: Define Outcomes": {
+      "main": [
+        [
+          {
+            "node": "Parse Outcomes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Outcomes": {
+      "main": [
+        [
+          {
+            "node": "LLM: Design Procedures",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM: Design Procedures": {
+      "main": [
+        [
+          {
+            "node": "Parse Procedures",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Procedures": {
+      "main": [
+        [
+          {
+            "node": "LLM: Develop Analysis Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM: Develop Analysis Plan": {
+      "main": [
+        [
+          {
+            "node": "Parse Analysis Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Analysis Plan": {
+      "main": [
+        [
+          {
+            "node": "LLM: Generate Timeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM: Generate Timeline": {
+      "main": [
+        [
+          {
+            "node": "Build Methodology",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Methodology": {
+      "main": [
+        [
+          {
+            "node": "Update Project Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Project Record": {
+      "main": [
+        [
+          {
+            "node": "Log Audit Entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Audit Entry": {
+      "main": [
+        [
+          {
+            "node": "Prepare Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "qi-research-pipeline",
+      "createdAt": "2026-01-27T00:00:00.000Z",
+      "updatedAt": "2026-01-27T00:00:00.000Z"
+    },
+    {
+      "name": "stage-3-methodology",
+      "createdAt": "2026-01-27T00:00:00.000Z",
+      "updatedAt": "2026-01-27T00:00:00.000Z"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2026-01-27T00:00:00.000Z",
+  "versionId": "1"
+}

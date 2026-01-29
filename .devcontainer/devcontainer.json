@@ -1,0 +1,36 @@
+{
+  "name": "Project Dev Container",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "forwardPorts": [8000, 5432, 6379],
+  "postCreateCommand": "pip install -r requirements.txt -r requirements-dev.txt && pre-commit install",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "ms-azuretools.vscode-docker",
+        "eamodio.gitlens",
+        "editorconfig.editorconfig",
+        "github.copilot"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.linting.enabled": true,
+        "editor.formatOnSave": true,
+        "editor.rulers": [120],
+        "files.trimTrailingWhitespace": true,
+        "files.insertFinalNewline": true
+      }
+    }
+  },
+  "remoteUser": "vscode"
+}

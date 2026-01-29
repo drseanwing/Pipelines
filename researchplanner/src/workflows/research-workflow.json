@@ -1,0 +1,663 @@
+{
+  "name": "QI-Research Pipeline - Research Stage",
+  "id": "research-workflow-001",
+  "tags": ["qi", "research", "literature", "stage-2"],
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {},
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "id": "research-trigger"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "prompt": "=You are an expert medical librarian and systematic review specialist.\n\nBased on the following project information, generate a comprehensive search strategy:\n\n**Project Title:** {{ $json.intake.project_title }}\n**Clinical Problem:** {{ $json.intake.clinical_problem }}\n**Target Population:** {{ $json.intake.target_population }}\n**Setting:** {{ $json.intake.setting }}\n**Intended Outcomes:** {{ $json.intake.intended_outcomes }}\n**Project Type:** {{ $json.classification.project_type }}\n\nGenerate search strategies for multiple databases (PubMed, Semantic Scholar, Cochrane Library).\n\nProvide your response in JSON format:\n{\n  \"pubmed\": {\n    \"query\": \"PubMed search query using MeSH terms and Boolean operators\",\n    \"filters\": [\"List of filters: date ranges, article types, etc.\"]\n  },\n  \"semantic_scholar\": {\n    \"query\": \"Semantic Scholar query string\",\n    \"fields\": [\"List of fields to retrieve\"]\n  },\n  \"cochrane\": {\n    \"query\": \"Cochrane Library search query\",\n    \"databases\": [\"List of Cochrane databases to search\"]\n  },\n  \"inclusion_criteria\": [\"List of inclusion criteria for article screening\"],\n  \"exclusion_criteria\": [\"List of exclusion criteria for article screening\"],\n  \"search_rationale\": \"Brief explanation of search strategy design\"\n}\n\nReturn ONLY the JSON object, no additional text."
+      },
+      "name": "Generate Search Strategy",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [450, 300],
+      "id": "generate-search-strategy",
+      "credentials": {
+        "anthropicApi": {
+          "id": "1",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse Search Strategy Node\n// Extract search parameters from Claude's response\n\nconst project = $input.first().json;\nconst searchStrategyRaw = $input.item(0).json.output;\nconst searchStrategy = JSON.parse(searchStrategyRaw);\n\n// Store search strategy with project data\nreturn {\n  json: {\n    project: project,\n    search_strategy: searchStrategy,\n    search_date: new Date().toISOString()\n  }\n};"
+      },
+      "name": "Parse Search Strategy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300],
+      "id": "parse-search-strategy"
+    },
+    {
+      "parameters": {
+        "url": "=https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+        "method": "GET",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "db",
+              "value": "pubmed"
+            },
+            {
+              "name": "term",
+              "value": "={{ $json.search_strategy.pubmed.query }}"
+            },
+            {
+              "name": "retmax",
+              "value": "50"
+            },
+            {
+              "name": "retmode",
+              "value": "json"
+            },
+            {
+              "name": "sort",
+              "value": "relevance"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Search PubMed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 200],
+      "id": "search-pubmed"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.semanticscholar.org/graph/v1/paper/search",
+        "method": "GET",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $json.search_strategy.semantic_scholar.query }}"
+            },
+            {
+              "name": "limit",
+              "value": "50"
+            },
+            {
+              "name": "fields",
+              "value": "paperId,title,abstract,year,authors,citationCount,influentialCitationCount,fieldsOfStudy,publicationTypes"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Search Semantic Scholar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 300],
+      "id": "search-semantic-scholar"
+    },
+    {
+      "parameters": {
+        "url": "=https://www.cochranelibrary.com/api/search",
+        "method": "GET",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $json.search_strategy.cochrane.query }}"
+            },
+            {
+              "name": "pageSize",
+              "value": "50"
+            },
+            {
+              "name": "format",
+              "value": "json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Search Cochrane",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 400],
+      "id": "search-cochrane"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByPosition",
+        "options": {}
+      },
+      "name": "Merge Search Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [1050, 300],
+      "id": "merge-search-results"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Deduplicate and Process Results Node\n// Merge results from all sources and remove duplicates\n\nconst items = $input.all();\n\n// Extract results from each source\nconst pubmedResults = items[0]?.json?.esearchresult?.idlist || [];\nconst semanticResults = items[1]?.json?.data || [];\nconst cochraneResults = items[2]?.json?.results || [];\n\nconst project = items[0].json.project || items[1].json.project || items[2].json.project;\nconst searchStrategy = items[0].json.search_strategy || items[1].json.search_strategy || items[2].json.search_strategy;\n\n// Transform PubMed results to common format\nconst pubmedArticles = pubmedResults.map(pmid => ({\n  id: `pubmed-${pmid}`,\n  source: 'PubMed',\n  external_id: pmid,\n  title: null, // Will be fetched in next step\n  abstract: null,\n  year: null,\n  authors: [],\n  citation_count: 0,\n  url: `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`\n}));\n\n// Transform Semantic Scholar results\nconst semanticArticles = semanticResults.map(paper => ({\n  id: `semantic-${paper.paperId}`,\n  source: 'Semantic Scholar',\n  external_id: paper.paperId,\n  title: paper.title,\n  abstract: paper.abstract,\n  year: paper.year,\n  authors: paper.authors?.map(a => a.name) || [],\n  citation_count: paper.citationCount || 0,\n  influential_citations: paper.influentialCitationCount || 0,\n  fields: paper.fieldsOfStudy || [],\n  url: `https://www.semanticscholar.org/paper/${paper.paperId}`\n}));\n\n// Transform Cochrane results\nconst cochraneArticles = cochraneResults.map((result, idx) => ({\n  id: `cochrane-${idx}`,\n  source: 'Cochrane',\n  external_id: result.id || idx.toString(),\n  title: result.title,\n  abstract: result.abstract,\n  year: result.year,\n  authors: result.authors || [],\n  citation_count: 0,\n  url: result.url || `https://www.cochranelibrary.com/cdsr/doi/${result.doi || ''}`\n}));\n\n// Combine all articles\nconst allArticles = [\n  ...pubmedArticles,\n  ...semanticArticles,\n  ...cochraneArticles\n];\n\n// Deduplicate by title similarity (simple exact match for now)\nconst seenTitles = new Set();\nconst uniqueArticles = [];\n\nfor (const article of allArticles) {\n  if (!article.title) {\n    uniqueArticles.push(article);\n    continue;\n  }\n  \n  const normalizedTitle = article.title.toLowerCase().trim();\n  if (!seenTitles.has(normalizedTitle)) {\n    seenTitles.add(normalizedTitle);\n    uniqueArticles.push(article);\n  }\n}\n\nreturn {\n  json: {\n    project: project,\n    search_strategy: searchStrategy,\n    articles: uniqueArticles,\n    total_found: allArticles.length,\n    unique_count: uniqueArticles.length,\n    pubmed_ids: pubmedArticles.map(a => a.external_id)\n  }\n};"
+      },
+      "name": "Deduplicate Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 300],
+      "id": "deduplicate-results"
+    },
+    {
+      "parameters": {
+        "url": "=https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+        "method": "GET",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "db",
+              "value": "pubmed"
+            },
+            {
+              "name": "id",
+              "value": "={{ $json.pubmed_ids.join(',') }}"
+            },
+            {
+              "name": "retmode",
+              "value": "xml"
+            },
+            {
+              "name": "rettype",
+              "value": "abstract"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Fetch PubMed Abstracts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1450, 300],
+      "id": "fetch-pubmed-abstracts"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse PubMed Abstracts Node\n// Parse XML response and merge with article data\n\nconst xml2js = require('xml2js');\nconst parser = new xml2js.Parser({ explicitArray: false });\n\nconst xmlData = $input.item(0).json.body || $input.item(0).json;\nconst articleData = $input.item(1).json;\n\n// Parse PubMed XML response\nlet pubmedDetails = {};\n\ntry {\n  const result = await parser.parseStringPromise(xmlData);\n  const articles = result?.PubmedArticleSet?.PubmedArticle || [];\n  const articleArray = Array.isArray(articles) ? articles : [articles];\n  \n  for (const article of articleArray) {\n    const pmid = article?.MedlineCitation?.PMID?._ || article?.MedlineCitation?.PMID;\n    if (!pmid) continue;\n    \n    const medlineCitation = article.MedlineCitation;\n    const articleInfo = medlineCitation?.Article;\n    \n    pubmedDetails[pmid] = {\n      title: articleInfo?.ArticleTitle || '',\n      abstract: articleInfo?.Abstract?.AbstractText || '',\n      year: medlineCitation?.DateCompleted?.Year || \n             medlineCitation?.DateRevised?.Year || \n             articleInfo?.Journal?.JournalIssue?.PubDate?.Year || null,\n      authors: Array.isArray(articleInfo?.AuthorList?.Author) \n        ? articleInfo.AuthorList.Author.map(a => `${a.LastName || ''} ${a.ForeName || ''}`.trim())\n        : (articleInfo?.AuthorList?.Author ? [`${articleInfo.AuthorList.Author.LastName || ''} ${articleInfo.AuthorList.Author.ForeName || ''}`.trim()] : []),\n      journal: articleInfo?.Journal?.Title || '',\n      doi: article?.PubmedData?.ArticleIdList?.ArticleId?.find?.(id => id.$?.IdType === 'doi')?._\n    };\n  }\n} catch (error) {\n  console.error('Error parsing PubMed XML:', error);\n}\n\n// Merge PubMed details with existing article data\nconst enrichedArticles = articleData.articles.map(article => {\n  if (article.source === 'PubMed' && pubmedDetails[article.external_id]) {\n    return {\n      ...article,\n      ...pubmedDetails[article.external_id]\n    };\n  }\n  return article;\n});\n\nreturn {\n  json: {\n    project: articleData.project,\n    search_strategy: articleData.search_strategy,\n    articles: enrichedArticles,\n    total_count: enrichedArticles.length\n  }\n};"
+      },
+      "name": "Enrich PubMed Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1650, 300],
+      "id": "enrich-pubmed-data"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByPosition",
+        "options": {}
+      },
+      "name": "Merge Enriched Data",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [1850, 300],
+      "id": "merge-enriched-data"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "prompt": "=You are an expert systematic reviewer specializing in healthcare research.\n\nAnalyze and rank the following articles by relevance to the project:\n\n**Project Title:** {{ $json.project.intake.project_title }}\n**Clinical Problem:** {{ $json.project.intake.clinical_problem }}\n**Target Population:** {{ $json.project.intake.target_population }}\n**Intended Outcomes:** {{ $json.project.intake.intended_outcomes }}\n\n**Inclusion Criteria:**\n{{ $json.search_strategy.inclusion_criteria.join(', ') }}\n\n**Exclusion Criteria:**\n{{ $json.search_strategy.exclusion_criteria.join(', ') }}\n\n**Articles Found ({{ $json.total_count }} total):**\n{{ JSON.stringify($json.articles, null, 2) }}\n\nFor each article:\n1. Assess relevance (HIGH/MEDIUM/LOW)\n2. Determine inclusion decision (INCLUDE/EXCLUDE/UNCERTAIN)\n3. Extract key relevance factors\n4. Assign relevance score (0-100)\n\nProvide response in JSON format:\n{\n  \"ranked_articles\": [\n    {\n      \"id\": \"article id\",\n      \"relevance\": \"HIGH|MEDIUM|LOW\",\n      \"score\": 0-100,\n      \"decision\": \"INCLUDE|EXCLUDE|UNCERTAIN\",\n      \"rationale\": \"Brief explanation\",\n      \"key_factors\": [\"List of relevance factors\"]\n    }\n  ],\n  \"summary\": {\n    \"total_reviewed\": 0,\n    \"included\": 0,\n    \"excluded\": 0,\n    \"uncertain\": 0\n  }\n}\n\nReturn ONLY the JSON object, no additional text."
+      },
+      "name": "Rank Articles by Relevance",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [2050, 300],
+      "id": "rank-articles",
+      "credentials": {
+        "anthropicApi": {
+          "id": "1",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Filter Top Articles Node\n// Keep only INCLUDE and UNCERTAIN articles, sort by score\n\nconst project = $input.first().json.project;\nconst searchStrategy = $input.first().json.search_strategy;\nconst allArticles = $input.first().json.articles;\nconst rankingRaw = $input.item(0).json.output;\nconst ranking = JSON.parse(rankingRaw);\n\n// Create lookup map for rankings\nconst rankingMap = new Map();\nfor (const rankedArticle of ranking.ranked_articles) {\n  rankingMap.set(rankedArticle.id, rankedArticle);\n}\n\n// Merge article data with rankings\nconst articlesWithRankings = allArticles.map(article => {\n  const rankData = rankingMap.get(article.id) || {\n    relevance: 'UNCERTAIN',\n    score: 0,\n    decision: 'UNCERTAIN',\n    rationale: 'Not ranked',\n    key_factors: []\n  };\n  \n  return {\n    ...article,\n    ranking: rankData\n  };\n});\n\n// Filter for INCLUDE and UNCERTAIN articles\nconst relevantArticles = articlesWithRankings.filter(\n  article => article.ranking.decision === 'INCLUDE' || article.ranking.decision === 'UNCERTAIN'\n);\n\n// Sort by score descending\nrelevantArticles.sort((a, b) => b.ranking.score - a.ranking.score);\n\n// Take top 20 for detailed processing\nconst topArticles = relevantArticles.slice(0, 20);\n\nreturn {\n  json: {\n    project: project,\n    search_strategy: searchStrategy,\n    all_articles: articlesWithRankings,\n    top_articles: topArticles,\n    ranking_summary: ranking.summary\n  }\n};"
+      },
+      "name": "Filter Top Articles",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2250, 300],
+      "id": "filter-top-articles"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "prompt": "=You are an expert systematic reviewer extracting detailed information from research articles.\n\nFor each of the following top-ranked articles, extract:\n\n**Project Context:**\n**Title:** {{ $json.project.intake.project_title }}\n**Clinical Problem:** {{ $json.project.intake.clinical_problem }}\n\n**Articles to Process ({{ $json.top_articles.length }} articles):**\n{{ JSON.stringify($json.top_articles, null, 2) }}\n\nFor each article, extract:\n1. Study design and methodology\n2. Key findings relevant to the project\n3. Sample size and population characteristics\n4. Intervention details (if applicable)\n5. Outcomes measured\n6. Limitations and biases\n7. Quality indicators (randomization, blinding, etc.)\n8. Applicability to the project context\n\nProvide response in JSON format:\n{\n  \"processed_articles\": [\n    {\n      \"id\": \"article id\",\n      \"study_design\": \"Description of study design\",\n      \"key_findings\": [\"List of key findings\"],\n      \"sample_size\": 0,\n      \"population\": \"Population description\",\n      \"intervention\": \"Intervention description (if applicable)\",\n      \"outcomes\": [\"List of outcomes measured\"],\n      \"limitations\": [\"List of limitations\"],\n      \"quality_score\": \"HIGH|MEDIUM|LOW\",\n      \"applicability\": \"Assessment of applicability to project\"\n    }\n  ]\n}\n\nReturn ONLY the JSON object, no additional text."
+      },
+      "name": "Process Top Articles",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [2450, 300],
+      "id": "process-top-articles",
+      "credentials": {
+        "anthropicApi": {
+          "id": "1",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "prompt": "=You are an expert systematic reviewer synthesizing evidence from multiple research articles.\n\nSynthesize the evidence from the processed articles into a coherent narrative:\n\n**Project Context:**\n**Title:** {{ $json.project.intake.project_title }}\n**Clinical Problem:** {{ $json.project.intake.clinical_problem }}\n**Target Population:** {{ $json.project.intake.target_population }}\n**Intended Outcomes:** {{ $json.project.intake.intended_outcomes }}\n\n**Processed Articles:**\n{{ JSON.stringify(JSON.parse($input.item(0).json.output).processed_articles, null, 2) }}\n\nCreate a comprehensive evidence synthesis covering:\n1. Overview of literature landscape\n2. Consistent findings across studies\n3. Contradictory findings and explanations\n4. Study quality assessment\n5. Strength of evidence\n6. Implications for the project\n7. Recommendations based on evidence\n\nProvide response in JSON format:\n{\n  \"evidence_synthesis\": {\n    \"overview\": \"Narrative overview of literature (500-800 words)\",\n    \"consistent_findings\": [\"List of consistent findings across studies\"],\n    \"contradictions\": [\"List of contradictory findings with explanations\"],\n    \"quality_assessment\": \"Overall assessment of study quality\",\n    \"strength_of_evidence\": \"STRONG|MODERATE|WEAK\",\n    \"implications\": \"Implications for the project (300-500 words)\",\n    \"recommendations\": [\"List of evidence-based recommendations\"]\n  }\n}\n\nReturn ONLY the JSON object, no additional text."
+      },
+      "name": "Synthesize Evidence",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [2650, 300],
+      "id": "synthesize-evidence",
+      "credentials": {
+        "anthropicApi": {
+          "id": "1",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "prompt": "=You are an expert systematic reviewer identifying gaps in the literature.\n\nBased on the evidence synthesis and project requirements, identify research gaps:\n\n**Project Context:**\n**Title:** {{ $json.project.intake.project_title }}\n**Clinical Problem:** {{ $json.project.intake.clinical_problem }}\n**Target Population:** {{ $json.project.intake.target_population }}\n**Setting:** {{ $json.project.intake.setting }}\n**Intended Outcomes:** {{ $json.project.intake.intended_outcomes }}\n\n**Evidence Synthesis:**\n{{ JSON.stringify(JSON.parse($input.item(0).json.output).evidence_synthesis, null, 2) }}\n\nIdentify gaps in:\n1. Study designs (e.g., lack of RCTs, no qualitative studies)\n2. Populations (e.g., underrepresented demographics)\n3. Settings (e.g., limited to specific healthcare systems)\n4. Interventions (e.g., novel approaches not yet studied)\n5. Outcomes (e.g., important outcomes not measured)\n6. Geographic regions (e.g., limited to certain countries)\n7. Temporal gaps (e.g., outdated evidence)\n\nProvide response in JSON format:\n{\n  \"gap_analysis\": {\n    \"identified_gaps\": [\n      {\n        \"category\": \"DESIGN|POPULATION|SETTING|INTERVENTION|OUTCOME|GEOGRAPHIC|TEMPORAL\",\n        \"description\": \"Description of the gap\",\n        \"significance\": \"Why this gap matters for the project\",\n        \"priority\": \"HIGH|MEDIUM|LOW\"\n      }\n    ],\n    \"research_opportunities\": [\"List of research opportunities based on gaps\"],\n    \"project_positioning\": \"How this project addresses identified gaps\"\n  }\n}\n\nReturn ONLY the JSON object, no additional text."
+      },
+      "name": "Identify Gaps",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [2850, 300],
+      "id": "identify-gaps",
+      "credentials": {
+        "anthropicApi": {
+          "id": "1",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Format Citations Node\n// Generate formatted citations in multiple styles\n\nconst project = $input.first().json.project;\nconst topArticles = $input.first().json.top_articles;\nconst processedArticlesRaw = $input.item(0).json.output;\nconst processedData = JSON.parse(processedArticlesRaw);\n\n// Create lookup map for processed article data\nconst processedMap = new Map();\nfor (const processed of processedData.processed_articles) {\n  processedMap.set(processed.id, processed);\n}\n\n// Generate citations for each article\nconst citations = topArticles.map((article, index) => {\n  const processed = processedMap.get(article.id);\n  \n  // Generate Vancouver style citation\n  const authorList = article.authors && article.authors.length > 0\n    ? article.authors.slice(0, 6).join(', ') + (article.authors.length > 6 ? ', et al.' : '')\n    : 'Author unknown';\n  \n  const vancouver = `${index + 1}. ${authorList}. ${article.title || 'Title unavailable'}. ${article.journal || 'Journal unknown'}. ${article.year || 'Year unknown'}.`;\n  \n  // Generate APA style citation\n  const apa = `${authorList}. (${article.year || 'n.d.'}). ${article.title || 'Title unavailable'}. ${article.journal || 'Journal unknown'}. ${article.doi ? `https://doi.org/${article.doi}` : article.url}`;\n  \n  return {\n    id: article.id,\n    index: index + 1,\n    article: {\n      ...article,\n      processed_data: processed\n    },\n    citations: {\n      vancouver: vancouver,\n      apa: apa,\n      plain: `${article.title} (${article.year}) - ${article.source}`\n    },\n    bibtex: {\n      key: `article${index + 1}`,\n      type: 'article',\n      author: article.authors?.join(' and '),\n      title: article.title,\n      journal: article.journal,\n      year: article.year,\n      doi: article.doi,\n      url: article.url\n    }\n  };\n});\n\nreturn {\n  json: {\n    project: project,\n    citations: citations,\n    total_citations: citations.length\n  }\n};"
+      },
+      "name": "Format Citations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3050, 300],
+      "id": "format-citations"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Compile Research Results Node\n// Combine all research outputs into final structure\n\nconst project = $input.first().json.project;\nconst searchStrategy = $input.first().json.search_strategy;\nconst allArticles = $input.first().json.all_articles;\nconst topArticles = $input.first().json.top_articles;\nconst rankingSummary = $input.first().json.ranking_summary;\nconst citations = $input.first().json.citations;\n\nconst processedArticlesRaw = $input.item(0).json.output;\nconst evidenceSynthesisRaw = $input.item(1).json.output;\nconst gapAnalysisRaw = $input.item(2).json.output;\n\nconst processedData = JSON.parse(processedArticlesRaw);\nconst evidenceData = JSON.parse(evidenceSynthesisRaw);\nconst gapData = JSON.parse(gapAnalysisRaw);\n\n// Compile final research results\nconst researchResults = {\n  search_strategy: searchStrategy,\n  search_metadata: {\n    search_date: new Date().toISOString(),\n    total_articles_found: allArticles.length,\n    articles_after_screening: topArticles.length,\n    included: rankingSummary.included,\n    excluded: rankingSummary.excluded,\n    uncertain: rankingSummary.uncertain\n  },\n  primary_literature: citations.slice(0, 10).map(c => ({\n    citation: c.citations.vancouver,\n    article: {\n      id: c.id,\n      title: c.article.title,\n      authors: c.article.authors,\n      year: c.article.year,\n      source: c.article.source,\n      url: c.article.url,\n      abstract: c.article.abstract,\n      ranking: c.article.ranking,\n      processed_data: c.article.processed_data\n    }\n  })),\n  secondary_literature: citations.slice(10).map(c => ({\n    citation: c.citations.vancouver,\n    article: {\n      id: c.id,\n      title: c.article.title,\n      authors: c.article.authors,\n      year: c.article.year,\n      source: c.article.source,\n      url: c.article.url\n    }\n  })),\n  evidence_synthesis: evidenceData.evidence_synthesis,\n  gap_analysis: gapData.gap_analysis,\n  citations_formatted: {\n    vancouver: citations.map(c => c.citations.vancouver),\n    apa: citations.map(c => c.citations.apa),\n    bibtex: citations.map(c => c.bibtex)\n  },\n  completed_at: new Date().toISOString()\n};\n\n// Update project record\nconst updatedProject = {\n  ...project,\n  research: researchResults,\n  status: 'RESEARCH_COMPLETE',\n  updated_at: new Date().toISOString()\n};\n\nreturn {\n  json: updatedProject\n};"
+      },
+      "name": "Compile Research Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3250, 300],
+      "id": "compile-research-results"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE projects\nSET \n  research = $1,\n  status = $2,\n  updated_at = $3\nWHERE id = $4\nRETURNING *;",
+        "additionalFields": {
+          "queryParameters": "={{ JSON.stringify([\n  JSON.stringify($json.research),\n  $json.status,\n  $json.updated_at,\n  $json.id\n]) }}"
+        }
+      },
+      "name": "Update Project Record",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [3450, 300],
+      "id": "update-project-record",
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO audit_log (project_id, timestamp, action, actor, details, previous_state, new_state)\nVALUES ($1, $2, $3, $4, $5, $6, $7);",
+        "additionalFields": {
+          "queryParameters": "={{ JSON.stringify([\n  $json.id,\n  new Date().toISOString(),\n  'RESEARCH_COMPLETED',\n  'system',\n  JSON.stringify({ \n    stage: 'research', \n    articles_found: $json.research.search_metadata.total_articles_found,\n    articles_included: $json.research.search_metadata.articles_after_screening\n  }),\n  JSON.stringify({ status: 'INTAKE_COMPLETE' }),\n  JSON.stringify({ status: 'RESEARCH_COMPLETE' })\n]) }}"
+        }
+      },
+      "name": "Create Audit Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [3450, 450],
+      "id": "create-audit-log",
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "unit": "hours",
+        "amount": 168,
+        "resume": "webhook",
+        "options": {
+          "webhookSuffix": "={{ 'checkpoint-research-' + $json.id }}"
+        }
+      },
+      "name": "Wait for Review",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [3650, 300],
+      "id": "wait-for-review",
+      "webhookId": "research-checkpoint"
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "fromEmail": "={{ $env.SMTP_FROM }}",
+        "toEmail": "={{ $json.intake.principal_investigator.email }}",
+        "subject": "QI/Research Pipeline - Research Stage Complete - Review Required",
+        "emailFormat": "html",
+        "message": "=<html>\n<body>\n<h2>Research Stage Complete - Review Required</h2>\n<p>Dear {{ $json.intake.principal_investigator.name }},</p>\n\n<p>The research stage for your project has been completed. Please review the findings:</p>\n\n<h3>Project Details</h3>\n<ul>\n  <li><strong>Project ID:</strong> {{ $json.id }}</li>\n  <li><strong>Title:</strong> {{ $json.intake.project_title }}</li>\n</ul>\n\n<h3>Research Summary</h3>\n<ul>\n  <li><strong>Total Articles Found:</strong> {{ $json.research.search_metadata.total_articles_found }}</li>\n  <li><strong>Articles After Screening:</strong> {{ $json.research.search_metadata.articles_after_screening }}</li>\n  <li><strong>Primary Literature:</strong> {{ $json.research.primary_literature.length }} articles</li>\n  <li><strong>Secondary Literature:</strong> {{ $json.research.secondary_literature.length }} articles</li>\n  <li><strong>Strength of Evidence:</strong> {{ $json.research.evidence_synthesis.strength_of_evidence }}</li>\n</ul>\n\n<h3>Key Findings</h3>\n<p><strong>Evidence Synthesis:</strong></p>\n<p>{{ $json.research.evidence_synthesis.overview.substring(0, 500) }}...</p>\n\n<p><strong>Identified Gaps:</strong> {{ $json.research.gap_analysis.identified_gaps.length }} gaps identified</p>\n\n<h3>Next Steps</h3>\n<p>Please review the complete research findings and approve to proceed to the methodology stage:</p>\n\n<p><a href=\"{{ $env.WEBHOOK_URL }}/checkpoint-research-{{ $json.id }}?action=approve\">Approve Research</a></p>\n<p><a href=\"{{ $env.WEBHOOK_URL }}/checkpoint-research-{{ $json.id }}?action=reject\">Request Changes</a></p>\n\n<p>You can view the full research report in the project dashboard.</p>\n\n<p>Best regards,<br>\nQI/Research Pipeline Team</p>\n</body>\n</html>"
+      },
+      "name": "Send Review Notification",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [3650, 450],
+      "id": "send-review-notification",
+      "credentials": {
+        "smtp": {
+          "id": "1",
+          "name": "SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({\n  success: true,\n  project_id: $json.id,\n  status: $json.status,\n  research_summary: {\n    total_articles: $json.research.search_metadata.total_articles_found,\n    screened_articles: $json.research.search_metadata.articles_after_screening,\n    primary_literature_count: $json.research.primary_literature.length,\n    strength_of_evidence: $json.research.evidence_synthesis.strength_of_evidence,\n    gaps_identified: $json.research.gap_analysis.identified_gaps.length\n  },\n  message: 'Research stage completed successfully - awaiting review'\n}) }}"
+      },
+      "name": "Return Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [3850, 300],
+      "id": "return-result"
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Generate Search Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Search Strategy": {
+      "main": [
+        [
+          {
+            "node": "Parse Search Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Search Strategy": {
+      "main": [
+        [
+          {
+            "node": "Search PubMed",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Search Semantic Scholar",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Search Cochrane",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search PubMed": {
+      "main": [
+        [
+          {
+            "node": "Merge Search Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Semantic Scholar": {
+      "main": [
+        [
+          {
+            "node": "Merge Search Results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Search Cochrane": {
+      "main": [
+        [
+          {
+            "node": "Merge Search Results",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge Search Results": {
+      "main": [
+        [
+          {
+            "node": "Deduplicate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deduplicate Results": {
+      "main": [
+        [
+          {
+            "node": "Fetch PubMed Abstracts",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Enriched Data",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Fetch PubMed Abstracts": {
+      "main": [
+        [
+          {
+            "node": "Enrich PubMed Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich PubMed Data": {
+      "main": [
+        [
+          {
+            "node": "Merge Enriched Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Enriched Data": {
+      "main": [
+        [
+          {
+            "node": "Rank Articles by Relevance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rank Articles by Relevance": {
+      "main": [
+        [
+          {
+            "node": "Filter Top Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Top Articles": {
+      "main": [
+        [
+          {
+            "node": "Process Top Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Top Articles": {
+      "main": [
+        [
+          {
+            "node": "Synthesize Evidence",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Format Citations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Synthesize Evidence": {
+      "main": [
+        [
+          {
+            "node": "Identify Gaps",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Compile Research Results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Identify Gaps": {
+      "main": [
+        [
+          {
+            "node": "Compile Research Results",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Format Citations": {
+      "main": [
+        [
+          {
+            "node": "Compile Research Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compile Research Results": {
+      "main": [
+        [
+          {
+            "node": "Update Project Record",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Create Audit Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Project Record": {
+      "main": [
+        [
+          {
+            "node": "Wait for Review",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Review Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Review": {
+      "main": [
+        [
+          {
+            "node": "Return Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "Australia/Brisbane",
+    "executionOrder": "v1"
+  },
+  "staticData": null
+}

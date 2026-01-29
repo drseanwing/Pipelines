@@ -1,0 +1,262 @@
+{
+  "name": "FOAM Evidence Search Pipeline",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "notes": "Main evidence search orchestrator. Expects: { request_id, topic, format }"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Initialize evidence search\nconst input = $input.first().json;\n\nconst searchContext = {\n  request_id: input.request_id,\n  topic: input.topic,\n  format: input.format,\n  search_term: input.topic?.clinical_question || input.topic?.title || '',\n  pmid: input.topic?.trial_reference?.pmid || null,\n  _stage: 'evidence_search_started',\n  _started_at: new Date().toISOString()\n};\n\nreturn { json: searchContext };"
+      },
+      "id": "init-search",
+      "name": "Initialize Search",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.PUBMED_FETCH_WORKFLOW_ID }}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "pubmed-search",
+      "name": "PubMed Search",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [680, 180]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.WEB_SEARCH_WORKFLOW_ID }}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "web-search",
+      "name": "Web Search",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.FOAMED_CROSSREF_WORKFLOW_ID }}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "foam-search",
+      "name": "FOAM Search",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [680, 420]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "id": "merge-results",
+      "name": "Merge All Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.1,
+      "position": [920, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Assemble evidence package from all search results\nconst items = $input.all();\n\n// Extract results from each source\nlet pubmedArticles = [];\nlet webSources = [];\nlet foamedCrossrefs = [];\nlet requestId = null;\nlet topic = null;\n\nfor (const item of items) {\n  const data = item.json;\n  \n  if (data.request_id) requestId = data.request_id;\n  if (data.topic) topic = data.topic;\n  \n  if (data.articles) {\n    pubmedArticles = data.articles;\n  }\n  if (data.sources) {\n    webSources = data.sources;\n  }\n  if (data.foamed_crossrefs) {\n    foamedCrossrefs = data.foamed_crossrefs;\n  }\n}\n\n// Build evidence package structure\nconst evidencePackage = {\n  request_id: requestId,\n  sources: [],\n  synthesis: {\n    evidence_summary: '',\n    evidence_quality: 'pending',\n    key_uncertainties: [],\n    practice_implications: ''\n  },\n  guidelines_referenced: [],\n  foamed_crossrefs: foamedCrossrefs.map(ref => ({\n    resource: ref.resource,\n    title: ref.title,\n    url: ref.url,\n    relevance_note: 'Auto-discovered via search'\n  })),\n  generated_at: new Date().toISOString()\n};\n\n// Add PubMed sources\nfor (const article of pubmedArticles) {\n  evidencePackage.sources.push({\n    citation: article.citation,\n    source_type: 'review', // Will be updated by LLM classification\n    key_findings: [],\n    limitations: [],\n    relevance_score: 0.5, // Default, will be updated\n    extraction_method: article.abstract ? 'abstract-only' : 'citation-only'\n  });\n}\n\n// Add web sources\nfor (const source of webSources) {\n  if (source.url && !evidencePackage.sources.find(s => s.citation?.url === source.url)) {\n    evidencePackage.sources.push({\n      citation: {\n        title: source.title || 'Web Source',\n        url: source.url\n      },\n      source_type: 'web-resource',\n      key_findings: [],\n      relevance_score: 0.3,\n      extraction_method: 'web_search'\n    });\n  }\n}\n\nreturn {\n  json: {\n    request_id: requestId,\n    topic: topic,\n    evidence_package: evidencePackage,\n    _stage: 'evidence_package_assembled',\n    _pubmed_count: pubmedArticles.length,\n    _web_count: webSources.length,\n    _foam_count: foamedCrossrefs.length,\n    _evidence_search_complete: true\n  }\n};"
+      },
+      "id": "assemble-package",
+      "name": "Assemble Evidence Package",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1140, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'You are a medical evidence synthesis expert. Analyze the following evidence sources for the clinical question: \"' + $json.topic?.clinical_question + '\"\\n\\nSources found:\\n' + JSON.stringify($json.evidence_package.sources.slice(0, 10), null, 2) + '\\n\\nProvide:\\n1. A brief evidence summary (2-3 sentences)\\n2. Evidence quality assessment (strong/moderate/weak/very-weak/conflicting)\\n3. Key uncertainties (list 2-4)\\n4. Practice implications (1-2 sentences)\\n\\nFormat as JSON with keys: evidence_summary, evidence_quality, key_uncertainties (array), practice_implications' }}",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "synthesize-evidence",
+      "name": "Synthesize Evidence",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [1360, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "temperature": 0.3,
+          "maxTokensToSample": 2048
+        }
+      },
+      "id": "claude-model",
+      "name": "Claude Sonnet",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [1360, 500],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credential",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Finalize evidence package with synthesis\nconst input = $input.first().json;\nconst synthesisOutput = input.output || input.text || '{}';\n\n// Try to parse synthesis JSON\nlet synthesis;\ntry {\n  // Extract JSON from response\n  const jsonMatch = synthesisOutput.match(/\\{[\\s\\S]*\\}/);\n  synthesis = jsonMatch ? JSON.parse(jsonMatch[0]) : {};\n} catch (e) {\n  synthesis = {\n    evidence_summary: synthesisOutput.substring(0, 500),\n    evidence_quality: 'pending',\n    key_uncertainties: ['Synthesis parsing failed - manual review required'],\n    practice_implications: 'Review raw evidence'\n  };\n}\n\n// Update evidence package with synthesis\nconst finalPackage = {\n  ...input.evidence_package,\n  synthesis: {\n    evidence_summary: synthesis.evidence_summary || '',\n    evidence_quality: synthesis.evidence_quality || 'pending',\n    key_uncertainties: synthesis.key_uncertainties || [],\n    practice_implications: synthesis.practice_implications || ''\n  }\n};\n\nreturn {\n  json: {\n    request_id: input.request_id,\n    topic: input.topic,\n    evidence_package: finalPackage,\n    _stage: 'evidence_synthesis_complete',\n    _completed_at: new Date().toISOString()\n  }\n};"
+      },
+      "id": "finalize-package",
+      "name": "Finalize Package",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1580, 300]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Initialize Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize Search": {
+      "main": [
+        [
+          {
+            "node": "PubMed Search",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Web Search",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "FOAM Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PubMed Search": {
+      "main": [
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Web Search": {
+      "main": [
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FOAM Search": {
+      "main": [
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge All Results": {
+      "main": [
+        [
+          {
+            "node": "Assemble Evidence Package",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble Evidence Package": {
+      "main": [
+        [
+          {
+            "node": "Synthesize Evidence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Sonnet": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Synthesize Evidence",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Synthesize Evidence": {
+      "main": [
+        [
+          {
+            "node": "Finalize Package",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "FOAM",
+      "id": "foam-tag"
+    },
+    {
+      "name": "Evidence",
+      "id": "evidence-tag"
+    },
+    {
+      "name": "Common",
+      "id": "common-tag"
+    }
+  ],
+  "versionId": "1.0.0",
+  "meta": {
+    "instanceId": "foam-n8n-instance",
+    "notes": "Main evidence search orchestrator. Runs PubMed, web search, and FOAM scraping in parallel, then synthesizes with Claude."
+  }
+}

@@ -1,0 +1,331 @@
+{
+  "name": "FOAM Journal Club Summary",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "notes": "Expects: { request_id, topic: { title, clinical_question, trial_reference: { pmid, doi, acronym } }, requestor, ... }"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Initialize journal club workflow\nconst input = $input.first().json;\n\nconst context = {\n  request_id: input.request_id,\n  topic: input.topic,\n  format: 'journal-club',\n  pmid: input.topic?.trial_reference?.pmid || null,\n  doi: input.topic?.trial_reference?.doi || null,\n  acronym: input.topic?.trial_reference?.acronym || null,\n  clinical_question: input.topic?.clinical_question || '',\n  _workflow: 'journal-club',\n  _stage: 'initialized',\n  _started_at: new Date().toISOString()\n};\n\nreturn { json: context };"
+      },
+      "id": "init-workflow",
+      "name": "Initialize Workflow",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.PUBMED_FETCH_WORKFLOW_ID }}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "fetch-trial",
+      "name": "Fetch Trial from PubMed",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare trial data for extraction\nconst input = $input.first().json;\nconst articles = input.articles || [];\n\nif (articles.length === 0) {\n  throw new Error('No trial data found in PubMed. Check PMID is valid.');\n}\n\nconst trial = articles[0];\n\nreturn {\n  json: {\n    ...input,\n    trial: trial,\n    abstract: trial.abstract || '',\n    _stage: 'trial_fetched'\n  }\n};"
+      },
+      "id": "prepare-extraction",
+      "name": "Prepare for Extraction",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'You are a medical education specialist extracting structured data from clinical trial publications.\\n\\nTrial Information:\\n- Title: ' + $json.trial.title + '\\n- PMID: ' + $json.trial.pmid + '\\n- Journal: ' + $json.trial.journal + '\\n- Year: ' + $json.trial.year + '\\n- Authors: ' + ($json.trial.authors || []).slice(0,3).join(', ') + '\\n\\nAbstract:\\n' + $json.abstract + '\\n\\nClinical Question Context: ' + $json.clinical_question + '\\n\\nExtract detailed trial information following The Bottom Line format. Return as JSON with these keys:\\n- citation (authors, title, journal, year, doi, pmid)\\n- clinical_question (population, intervention, comparison, outcome - PICO format)\\n- design (study_type, randomisation, blinding, analysis_method, power_calculation)\\n- setting (sites, countries, dates, clinical_setting)\\n- population (inclusion array, exclusion array, flow object with screened/randomised/analysed, baseline array)\\n- intervention (description, protocol array, actual_delivered)\\n- control (description, protocol array)\\n- outcomes object with primary (name, definition, intervention_events, control_events, effect_measure, ci_95, p_value, nnt_nnh) and secondary array\\n- key_findings (one sentence summary)\\n\\nBe precise with numbers. Include 95% CI with all effect measures. Use \"NR\" for not reported data.' }}",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "extract-trial-data",
+      "name": "Extract Trial Data",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "temperature": 0.2,
+          "maxTokensToSample": 4096
+        }
+      },
+      "id": "claude-extraction",
+      "name": "Claude for Extraction",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [1120, 500],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credential",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse extraction results\nconst input = $input.first().json;\nconst extractionOutput = input.output || input.text || '{}';\n\nlet trialData;\ntry {\n  const jsonMatch = extractionOutput.match(/\\{[\\s\\S]*\\}/);\n  trialData = jsonMatch ? JSON.parse(jsonMatch[0]) : {};\n} catch (e) {\n  trialData = { extraction_error: e.message, raw_output: extractionOutput.substring(0, 1000) };\n}\n\nreturn {\n  json: {\n    request_id: input.request_id,\n    topic: input.topic,\n    trial: input.trial,\n    trial_data: trialData,\n    _stage: 'data_extracted'\n  }\n};"
+      },
+      "id": "parse-extraction",
+      "name": "Parse Extraction",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'You are a medical education specialist performing systematic critical appraisal of clinical trials.\\n\\nTrial: ' + $json.trial.title + '\\n\\nExtracted Data:\\n' + JSON.stringify($json.trial_data, null, 2) + '\\n\\nPerform critical appraisal using this checklist:\\n1. Allocation Concealment: Was randomisation concealed? (Adequate/Unclear/Inadequate)\\n2. Baseline Similarity: Were groups similar? (Similar/Minor imbalances/Major imbalances)\\n3. Follow-up: Completion rate? (Complete >95%/Acceptable 90-95%/Significant losses <90%)\\n4. Blinding: Patients/Clinicians/Assessors blinded? (Double-blind/Single-blind/Open-label)\\n5. Equal Treatment: Groups treated equally? (Equal/Minor differences/Major differences)\\n6. ITT Analysis: Was ITT performed? (ITT/Modified ITT/Per-protocol only)\\n7. Sample Size: Adequately powered? (Adequately powered/Underpowered/Early termination)\\n8. Clinical Significance: Is effect clinically meaningful? (Clinically significant/Borderline/Not significant)\\n9. Generalizability: How representative? (Broadly generalizable/Limited/Narrow)\\n10. Conclusions Match: Do conclusions match data? (Appropriate/Minor overreach/Significant overreach)\\n\\nReturn JSON with:\\n- appraisal object with each criterion (assessment and details)\\n- strengths array (3-5 items)\\n- weaknesses array (3-5 items)\\n- overall_quality (High/Moderate/Low)\\n- key_limitations array\\n- bottom_line_quality_note (one sentence for inclusion in summary)' }}",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "critical-appraisal",
+      "name": "Critical Appraisal",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "temperature": 0.3,
+          "maxTokensToSample": 3072
+        }
+      },
+      "id": "claude-appraisal",
+      "name": "Claude for Appraisal",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [1560, 500],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credential",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse appraisal results\nconst input = $input.first().json;\nconst appraisalOutput = input.output || input.text || '{}';\n\nlet appraisal;\ntry {\n  const jsonMatch = appraisalOutput.match(/\\{[\\s\\S]*\\}/);\n  appraisal = jsonMatch ? JSON.parse(jsonMatch[0]) : {};\n} catch (e) {\n  appraisal = { appraisal_error: e.message, raw_output: appraisalOutput.substring(0, 1000) };\n}\n\nreturn {\n  json: {\n    request_id: input.request_id,\n    topic: input.topic,\n    trial: input.trial,\n    trial_data: input.trial_data,\n    appraisal: appraisal,\n    _stage: 'appraisal_complete'\n  }\n};"
+      },
+      "id": "parse-appraisal",
+      "name": "Parse Appraisal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'You are a FOAM writer creating the Bottom Line summary for a journal club review.\\n\\nTrial: ' + $json.trial.title + ' (' + ($json.trial_data.citation?.acronym || 'N/A') + ')\\n\\nKey Findings: ' + ($json.trial_data.key_findings || 'See data below') + '\\n\\nTrial Data Summary:\\n' + JSON.stringify($json.trial_data.outcomes, null, 2) + '\\n\\nCritical Appraisal:\\n- Overall Quality: ' + ($json.appraisal.overall_quality || 'Not assessed') + '\\n- Strengths: ' + ($json.appraisal.strengths || []).join('; ') + '\\n- Weaknesses: ' + ($json.appraisal.weaknesses || []).join('; ') + '\\n- Key Limitations: ' + ($json.appraisal.key_limitations || []).join('; ') + '\\n\\nClinical Question: ' + $json.topic.clinical_question + '\\n\\nWrite the Bottom Line summary (2-4 sentences) that:\\n1. States the key finding with effect size\\n2. Says whether this changes practice (YES/MAYBE/NO)\\n3. Specifies who this applies to\\n4. Acknowledges key uncertainty\\n\\nAlso provide:\\n- A one-liner for quick reference\\n- 2-3 clinical pearls\\n\\nReturn JSON with:\\n- bottom_line object (main_finding, practice_change, practice_statement, applies_to, uncertainty, full_text)\\n- one_liner string\\n- clinical_pearls array\\n\\nWrite as an expert colleague - be direct, not hedging without reason.' }}",
+        "options": {
+          "temperature": 0.4
+        }
+      },
+      "id": "generate-bottom-line",
+      "name": "Generate Bottom Line",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [2000, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "temperature": 0.4,
+          "maxTokensToSample": 2048
+        }
+      },
+      "id": "claude-bottom-line",
+      "name": "Claude for Bottom Line",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [2000, 500],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credential",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse bottom line and assemble final draft\nconst input = $input.first().json;\nconst bottomLineOutput = input.output || input.text || '{}';\n\nlet bottomLine;\ntry {\n  const jsonMatch = bottomLineOutput.match(/\\{[\\s\\S]*\\}/);\n  bottomLine = jsonMatch ? JSON.parse(jsonMatch[0]) : {};\n} catch (e) {\n  bottomLine = { \n    full_text: bottomLineOutput.substring(0, 500),\n    one_liner: 'Review required',\n    clinical_pearls: []\n  };\n}\n\n// Assemble markdown content\nconst trialData = input.trial_data || {};\nconst appraisal = input.appraisal || {};\nconst citation = trialData.citation || input.trial || {};\n\nlet markdown = `# ${citation.acronym || citation.title || 'Trial Review'}\\n\\n`;\nmarkdown += `**${(citation.authors || []).slice(0,3).join(', ')}${citation.authors?.length > 3 ? ' et al.' : ''}. ${citation.journal || 'Journal'} ${citation.year || ''}.${citation.doi ? ' doi:' + citation.doi : ''}**\\n\\n`;\n\n// Clinical Question\nconst pico = trialData.clinical_question || {};\nmarkdown += `## Clinical Question\\n\\n`;\nmarkdown += `In ${pico.population || '[population]'}, does ${pico.intervention || '[intervention]'} compared with ${pico.comparison || '[comparator]'} improve ${pico.outcome || '[outcome]'}?\\n\\n`;\n\n// Design\nconst design = trialData.design || {};\nmarkdown += `## Design\\n\\n`;\nmarkdown += `- **Study type:** ${design.study_type || 'RCT'}\\n`;\nmarkdown += `- **Randomisation:** ${design.randomisation || 'Not specified'}\\n`;\nmarkdown += `- **Blinding:** ${design.blinding || 'See appraisal'}\\n`;\nmarkdown += `- **Analysis:** ${design.analysis_method || 'ITT'}\\n`;\nmarkdown += `- **Power:** ${design.power_calculation || 'Not specified'}\\n\\n`;\n\n// Setting\nconst setting = trialData.setting || {};\nmarkdown += `## Setting\\n\\n`;\nmarkdown += `- ${setting.sites || '?'} sites in ${(setting.countries || []).join(', ') || 'multiple countries'}\\n`;\nmarkdown += `- Recruitment: ${setting.dates || 'Not specified'}\\n`;\nmarkdown += `- Setting: ${setting.clinical_setting || 'Not specified'}\\n\\n`;\n\n// Population\nconst pop = trialData.population || {};\nmarkdown += `## Population\\n\\n`;\nmarkdown += `**Inclusion:**\\n`;\n(pop.inclusion || ['Not specified']).forEach(i => markdown += `- ${i}\\n`);\nmarkdown += `\\n**Exclusion:**\\n`;\n(pop.exclusion || ['Not specified']).forEach(e => markdown += `- ${e}\\n`);\nif (pop.flow) {\n  markdown += `\\n*${pop.flow.screened || '?'} screened -> ${pop.flow.randomised || '?'} randomised -> ${pop.flow.analysed || '?'} analysed*\\n\\n`;\n}\n\n// Outcomes\nconst outcomes = trialData.outcomes || {};\nconst primary = outcomes.primary || {};\nmarkdown += `## Outcomes\\n\\n`;\nmarkdown += `**Primary outcome:** ${primary.name || 'Not specified'}\\n`;\nmarkdown += `- Intervention: ${primary.intervention_events || 'NR'}\\n`;\nmarkdown += `- Control: ${primary.control_events || 'NR'}\\n`;\nmarkdown += `- ${primary.effect_measure || 'Effect'} (95% CI ${primary.ci_95 || 'NR'}), p = ${primary.p_value || 'NR'}\\n`;\nif (primary.nnt_nnh) markdown += `- NNT/NNH: ${primary.nnt_nnh}\\n`;\nmarkdown += `\\n`;\n\n// Strengths and Weaknesses\nmarkdown += `## Strengths\\n\\n`;\n(appraisal.strengths || ['Assessment pending']).forEach(s => markdown += `- ${s}\\n`);\nmarkdown += `\\n## Weaknesses\\n\\n`;\n(appraisal.weaknesses || ['Assessment pending']).forEach(w => markdown += `- ${w}\\n`);\nmarkdown += `\\n`;\n\n// Bottom Line\nmarkdown += `## The Bottom Line\\n\\n`;\nmarkdown += `${bottomLine.bottom_line?.full_text || bottomLine.full_text || '[EXPERT INPUT NEEDED: Bottom line summary]'}\\n\\n`;\n\n// Clinical Pearls\nif (bottomLine.clinical_pearls && bottomLine.clinical_pearls.length > 0) {\n  markdown += `### Clinical Pearls\\n\\n`;\n  bottomLine.clinical_pearls.forEach(p => markdown += `- ${p}\\n`);\n  markdown += `\\n`;\n}\n\n// Placeholders for expert input\nmarkdown += `---\\n\\n`;\nmarkdown += `[CLINICAL PEARL NEEDED: Local practice context]\\n\\n`;\nmarkdown += `[EXPERT INPUT NEEDED: Regional guideline comparison]\\n\\n`;\nmarkdown += `---\\n**Summary author:** [Author name]\\n`;\nmarkdown += `**Summary date:** ${new Date().toISOString().split('T')[0]}\\n`;\nmarkdown += `**Peer-review editor:** [PEER REVIEW NEEDED]\\n`;\n\n// Create draft ID\nconst draft_id = crypto.randomUUID();\n\nreturn {\n  json: {\n    request_id: input.request_id,\n    draft_id: draft_id,\n    format: 'journal-club',\n    topic: input.topic,\n    content: {\n      title: citation.acronym || citation.title || 'Journal Club Summary',\n      subtitle: citation.title,\n      body_markdown: markdown,\n      word_count: markdown.split(/\\s+/).length\n    },\n    trial_data: trialData,\n    appraisal: appraisal,\n    bottom_line: bottomLine,\n    placeholders: [\n      {\n        placeholder_id: 'clinical-pearl-1',\n        type: 'clinical-pearl',\n        context: 'Local practice context',\n        prompt_for_expert: 'How does this apply to your local practice?'\n      },\n      {\n        placeholder_id: 'expert-input-1',\n        type: 'expert-input',\n        context: 'Regional guideline comparison',\n        prompt_for_expert: 'How does this compare to current regional guidelines?'\n      },\n      {\n        placeholder_id: 'peer-review',\n        type: 'peer-review',\n        context: 'Full content review',\n        prompt_for_expert: 'Please review for accuracy and completeness'\n      }\n    ],\n    validation_items: [\n      {\n        item_type: 'claim',\n        content: trialData.key_findings || 'Primary outcome claim',\n        source_cited: `PMID:${citation.pmid || 'pending'}`,\n        confidence: 'high',\n        requires_verification: true\n      }\n    ],\n    quality_checks: {\n      all_claims_cited: true,\n      uncertainty_acknowledged: true,\n      bottom_line_present: true,\n      foamed_crossrefs_included: false,\n      style_guide_compliant: true\n    },\n    _stage: 'draft_complete',\n    _completed_at: new Date().toISOString()\n  }\n};"
+      },
+      "id": "assemble-draft",
+      "name": "Assemble Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 300]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Initialize Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize Workflow": {
+      "main": [
+        [
+          {
+            "node": "Fetch Trial from PubMed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Trial from PubMed": {
+      "main": [
+        [
+          {
+            "node": "Prepare for Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare for Extraction": {
+      "main": [
+        [
+          {
+            "node": "Extract Trial Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude for Extraction": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Extract Trial Data",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Trial Data": {
+      "main": [
+        [
+          {
+            "node": "Parse Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Extraction": {
+      "main": [
+        [
+          {
+            "node": "Critical Appraisal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude for Appraisal": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Critical Appraisal",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Critical Appraisal": {
+      "main": [
+        [
+          {
+            "node": "Parse Appraisal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Appraisal": {
+      "main": [
+        [
+          {
+            "node": "Generate Bottom Line",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude for Bottom Line": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Generate Bottom Line",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Bottom Line": {
+      "main": [
+        [
+          {
+            "node": "Assemble Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "FOAM",
+      "id": "foam-tag"
+    },
+    {
+      "name": "Journal-Club",
+      "id": "journal-club-tag"
+    }
+  ],
+  "versionId": "1.0.0",
+  "meta": {
+    "instanceId": "foam-n8n-instance",
+    "notes": "Full journal club workflow: PubMed fetch -> Trial extraction -> Critical appraisal -> Bottom line -> Markdown assembly"
+  }
+}

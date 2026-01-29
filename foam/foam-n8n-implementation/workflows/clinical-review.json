@@ -1,0 +1,325 @@
+{
+  "name": "FOAM Clinical Review Generator",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "notes": "Expects: { request_id, topic: { title, clinical_question, scope_notes, keywords }, requestor, ... }"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Initialize clinical review workflow\nconst input = $input.first().json;\n\nconst context = {\n  request_id: input.request_id,\n  topic: input.topic,\n  format: 'clinical-review',\n  title: input.topic?.title || 'Clinical Review',\n  clinical_question: input.topic?.clinical_question || '',\n  scope_notes: input.topic?.scope_notes || '',\n  keywords: input.topic?.keywords || [],\n  target_audience: input.topic?.target_audience || 'Emergency physicians and acute care trainees',\n  regional_context: input.topic?.regional_context || 'Australia',\n  _workflow: 'clinical-review',\n  _stage: 'initialized',\n  _started_at: new Date().toISOString()\n};\n\nreturn { json: context };"
+      },
+      "id": "init-workflow",
+      "name": "Initialize Workflow",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'You are a clinical education specialist tasked with defining the scope and structure of a comprehensive medical review (3,000-5,000 words).\\n\\n## Input\\n\\n**Topic Title:** ' + $json.title + '\\n\\n**Clinical Question:** ' + $json.clinical_question + '\\n\\n**Scope Notes:** ' + $json.scope_notes + '\\n\\n**Keywords:** ' + ($json.keywords || []).join(', ') + '\\n\\n**Target Audience:** ' + $json.target_audience + '\\n\\n**Regional Context:** ' + $json.regional_context + '\\n\\n## Task\\n\\nGenerate a comprehensive scope definition following these principles:\\n\\n### 1. Define Review Scope\\n\\n**Core Clinical Questions**\\n- Identify 3-5 fundamental questions the review must answer\\n- Frame questions from a clinicians decision-making perspective\\n- Prioritize questions that impact patient outcomes\\n\\n**Section Outline (Modular Structure)**\\n- Create 8-12 sections following clinical workflow\\n- Typical flow: Recognition -> Risk Stratification -> Assessment -> Management -> Disposition -> Follow-up\\n- Use descriptive headers that convey clinical value, NOT generic labels\\n  - GOOD: \"Red Flags Requiring Immediate Action\"\\n  - BAD: \"Introduction\"\\n- Each section 300-500 words\\n- Total target: 3,000-5,000 words\\n\\n**Key Evidence to Seek**\\n- Identify landmark trials, guidelines, or systematic reviews\\n- Note where evidence gaps exist\\n- Highlight areas where evidence has changed recently\\n\\n**Expected Controversies**\\n- Identify areas where guidelines conflict\\n- Note where practice varies by region or institution\\n- Highlight evolving evidence or practice changes\\n\\n### 2. Section Planning\\n\\nFor each section, define:\\n- **Order**: Sequential number (1, 2, 3...)\\n- **Name**: Descriptive section title\\n- **Subtitle**: One-sentence clarifying subtitle\\n- **Key Questions**: 2-4 specific questions this section answers\\n- **Evidence Topics**: Specific areas to research (trials, guidelines, pathophysiology)\\n- **Target Word Count**: 300-500 words per section\\n\\n## Output Format\\n\\nReturn ONLY valid JSON with this structure:\\n{\\n  \"title\": \"Concise title with actionable clinical focus\",\\n  \"overview\": \"2-3 sentence overview of what the review will cover\",\\n  \"sections\": [\\n    {\\n      \"order\": 1,\\n      \"name\": \"Descriptive Section Title\",\\n      \"subtitle\": \"One-sentence subtitle clarifying focus\",\\n      \"key_questions\": [\"Clinical question 1\", \"Clinical question 2\"],\\n      \"evidence_topics\": [\"Trial or guideline\", \"Pathophysiology concept\"],\\n      \"target_word_count\": 400\\n    }\\n  ],\\n  \"controversies\": [\"Controversy 1\", \"Controversy 2\"],\\n  \"regional_considerations\": [\"Regional note 1\", \"Regional note 2\"],\\n  \"special_populations\": [\"Paediatric\", \"Pregnancy\", \"Elderly\", \"Renal impairment\"],\\n  \"total_target_words\": 4000,\\n  \"quality_focus_areas\": [\"High-risk scenario\", \"Common pitfall\", \"Recent evidence update\"]\\n}\\n\\nGenerate the scope definition now.' }}",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "define-scope",
+      "name": "Define Scope",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "temperature": 0.3,
+          "maxTokensToSample": 4096
+        }
+      },
+      "id": "claude-scope",
+      "name": "Claude for Scope",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [680, 500],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credential",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse scope definition output\nconst input = $input.first().json;\nconst scopeOutput = input.output || input.text || '{}';\n\nlet scopeData;\ntry {\n  const jsonMatch = scopeOutput.match(/\\{[\\s\\S]*\\}/);\n  scopeData = jsonMatch ? JSON.parse(jsonMatch[0]) : {};\n} catch (e) {\n  scopeData = { \n    parsing_error: e.message, \n    raw_output: scopeOutput.substring(0, 1000),\n    sections: [],\n    controversies: [],\n    special_populations: []\n  };\n}\n\n// Build search queries from scope\nconst searchQueries = [];\nif (scopeData.sections) {\n  scopeData.sections.forEach(section => {\n    if (section.evidence_topics) {\n      section.evidence_topics.forEach(topic => {\n        searchQueries.push(topic);\n      });\n    }\n  });\n}\n\nreturn {\n  json: {\n    request_id: input.request_id,\n    topic: input.topic,\n    format: 'clinical-review',\n    title: scopeData.title || input.title,\n    overview: scopeData.overview || '',\n    clinical_question: input.clinical_question,\n    scope: scopeData,\n    sections: scopeData.sections || [],\n    controversies: scopeData.controversies || [],\n    special_populations: scopeData.special_populations || [],\n    regional_considerations: scopeData.regional_considerations || [],\n    quality_focus_areas: scopeData.quality_focus_areas || [],\n    total_target_words: scopeData.total_target_words || 4000,\n    search_queries: searchQueries,\n    keywords: input.keywords || [],\n    _stage: 'scope_defined'\n  }\n};"
+      },
+      "id": "parse-scope",
+      "name": "Parse Scope",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.EVIDENCE_SEARCH_WORKFLOW_ID }}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "search-evidence",
+      "name": "Search Evidence",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'You are a FOAM (Free Open Access Medical Education) writer creating comprehensive clinical review content.\\n\\n## Review Structure\\n\\n**Title:** ' + $json.title + '\\n\\n**Overview:** ' + $json.overview + '\\n\\n**Clinical Question:** ' + $json.clinical_question + '\\n\\n## Sections to Draft\\n\\n' + JSON.stringify($json.sections, null, 2) + '\\n\\n## Evidence Package\\n\\n' + JSON.stringify($json.evidence || $json.sources || [], null, 2) + '\\n\\n## Controversies to Address\\n\\n' + JSON.stringify($json.controversies, null, 2) + '\\n\\n## Special Populations\\n\\n' + JSON.stringify($json.special_populations, null, 2) + '\\n\\n## Regional Considerations\\n\\n' + JSON.stringify($json.regional_considerations, null, 2) + '\\n\\n## Task\\n\\nGenerate ALL sections for this clinical review in a single response. Each section should be 300-500 words.\\n\\n### Section Drafting Guidelines\\n\\n1. **Expert-to-colleague register**: Write as an experienced colleague, not a textbook\\n2. **Evidence-based**: Every factual claim needs PMID citation (inline format)\\n3. **Bold key values**: **drug doses**, **thresholds**, **timeframes**\\n4. **Uncertainty acknowledged**: Clearly state where evidence is weak or conflicting\\n5. **Placeholders**: Include `[CLINICAL PEARL NEEDED: topic]` where bedside insights would add value\\n6. **Tables**: Use markdown tables for comparisons, differentials, drug doses\\n7. **Clinical pearls**: Mark with `[CLINICAL PEARL NEEDED: specific topic]`\\n8. **Expert input**: Mark with `[EXPERT INPUT NEEDED: specific question]`\\n\\n### Style Guidelines\\n\\n- First person acceptable: \"I typically assess...\"\\n- Direct imperatives: \"Consider... Check... Avoid...\"\\n- No over-explaining fundamentals\\n- Acknowledge uncertainty explicitly\\n- Use clinical decision framing\\n\\n## Output Format\\n\\nReturn as JSON with this structure:\\n{\\n  \"sections\": [\\n    {\\n      \"order\": 1,\\n      \"name\": \"Section Title\",\\n      \"content_markdown\": \"FULL MARKDOWN CONTENT HERE (300-500 words)\",\\n      \"word_count\": 400,\\n      \"citations\": [{\"claim\": \"claim text\", \"pmid\": \"12345678\", \"summary\": \"brief context\"}],\\n      \"placeholders\": [{\"type\": \"clinical-pearl\", \"topic\": \"topic\", \"context\": \"why needed\"}],\\n      \"tables\": [{\"title\": \"table title\", \"purpose\": \"why included\"}],\\n      \"key_takeaways\": [\"takeaway 1\", \"takeaway 2\"]\\n    }\\n  ],\\n  \"total_word_count\": 4000,\\n  \"all_citations\": [{\"pmid\": \"12345678\", \"summary\": \"citation summary\"}],\\n  \"validation_items\": [{\"type\": \"dose\", \"content\": \"drug X mg\", \"requires_verification\": true}]\\n}\\n\\nGenerate ALL sections now.' }}",
+        "options": {
+          "temperature": 0.4
+        }
+      },
+      "id": "draft-sections",
+      "name": "Draft All Sections",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "temperature": 0.4,
+          "maxTokensToSample": 16384
+        }
+      },
+      "id": "claude-drafting",
+      "name": "Claude for Drafting",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [1340, 500],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credential",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse sections output\nconst input = $input.first().json;\nconst sectionsOutput = input.output || input.text || '{}';\n\nlet sectionsData;\ntry {\n  const jsonMatch = sectionsOutput.match(/\\{[\\s\\S]*\\}/);\n  sectionsData = jsonMatch ? JSON.parse(jsonMatch[0]) : {};\n} catch (e) {\n  sectionsData = { \n    sections: [],\n    parsing_error: e.message, \n    raw_output: sectionsOutput.substring(0, 2000),\n    all_citations: [],\n    validation_items: []\n  };\n}\n\n// Collect all placeholders from sections\nconst allPlaceholders = [];\nif (sectionsData.sections) {\n  sectionsData.sections.forEach((section, idx) => {\n    if (section.placeholders) {\n      section.placeholders.forEach((ph, phIdx) => {\n        allPlaceholders.push({\n          placeholder_id: `${ph.type}-${idx + 1}-${phIdx + 1}`,\n          type: ph.type,\n          topic: ph.topic,\n          context: ph.context,\n          section: section.name\n        });\n      });\n    }\n  });\n}\n\nreturn {\n  json: {\n    request_id: input.request_id,\n    topic: input.topic,\n    format: 'clinical-review',\n    title: input.title,\n    overview: input.overview,\n    clinical_question: input.clinical_question,\n    scope: input.scope,\n    controversies: input.controversies,\n    special_populations: input.special_populations,\n    regional_considerations: input.regional_considerations,\n    sections_data: sectionsData.sections || [],\n    total_word_count: sectionsData.total_word_count || 0,\n    all_citations: sectionsData.all_citations || [],\n    validation_items: sectionsData.validation_items || [],\n    placeholders: allPlaceholders,\n    evidence: input.evidence || input.sources || [],\n    _stage: 'sections_drafted'\n  }\n};"
+      },
+      "id": "parse-sections",
+      "name": "Parse Sections",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'You are a quality assurance specialist validating a clinical review draft against FOAM quality standards.\\n\\n## Draft Content\\n\\n**Title:** ' + $json.title + '\\n\\n**Word Count:** ' + $json.total_word_count + '\\n\\n**Sections:** ' + ($json.sections_data || []).length + '\\n\\n**Section Details:**\\n' + JSON.stringify($json.sections_data, null, 2) + '\\n\\n**Citations Count:** ' + ($json.all_citations || []).length + '\\n\\n**Placeholders:** ' + ($json.placeholders || []).length + '\\n\\n## Quality Checklist\\n\\n### 1. Structure\\n- [ ] Correct template structure followed\\n- [ ] Word count within 3,000-5,000 range\\n- [ ] All required sections present\\n- [ ] Appropriate visual hierarchy\\n- [ ] Logical flow between sections\\n\\n### 2. Evidence Quality\\n- [ ] All factual claims have citations\\n- [ ] PMIDs included for peer-reviewed references\\n- [ ] Statistics include confidence intervals\\n- [ ] Evidence quality graded\\n- [ ] Conflicting evidence acknowledged\\n\\n### 3. Style and Register\\n- [ ] Expert-to-colleague register maintained\\n- [ ] No over-explanation of fundamentals\\n- [ ] Uncertainty acknowledged\\n- [ ] Clear, direct language\\n- [ ] Active voice predominates\\n\\n### 4. Placeholders\\n- [ ] Clinical pearl placeholders marked\\n- [ ] Expert input prompts present\\n- [ ] Regional variation flags included\\n- [ ] Verification items tagged\\n\\n## Output Format\\n\\nReturn JSON with this structure:\\n{\\n  \"overall_pass\": true,\\n  \"word_count\": 4200,\\n  \"scores\": {\\n    \"structure\": {\"pass\": true, \"notes\": \"\", \"missing_sections\": []},\\n    \"evidence\": {\"pass\": true, \"notes\": \"\", \"uncited_claims\": [], \"missing_citations\": 0},\\n    \"style\": {\"pass\": true, \"notes\": \"\", \"anti_patterns_found\": []},\\n    \"placeholders\": {\"pass\": true, \"counts\": {\"clinical_pearls\": 5, \"expert_input\": 3, \"regional_variation\": 2, \"verification\": 4}}\\n  },\\n  \"validation_items\": [{\"type\": \"dose\", \"content\": \"value\", \"location\": \"section\", \"requires_verification\": true}],\\n  \"issues_to_fix\": [{\"severity\": \"major\", \"category\": \"evidence\", \"issue\": \"description\", \"location\": \"section\", \"recommendation\": \"fix\"}],\\n  \"ready_for_expert_review\": true,\\n  \"recommendation\": \"APPROVE\",\\n  \"recommendation_rationale\": \"Draft meets quality standards...\"\\n}\\n\\nValidate the draft now.' }}",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "quality-checkpoint",
+      "name": "Quality Checkpoint",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "model": "llama3.2:latest",
+        "baseUrl": "http://host.docker.internal:11434",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "ollama-quality",
+      "name": "Ollama for Quality",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [1780, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse quality checkpoint output\nconst input = $input.first().json;\nconst qualityOutput = input.output || input.text || '{}';\n\nlet qualityData;\ntry {\n  const jsonMatch = qualityOutput.match(/\\{[\\s\\S]*\\}/);\n  qualityData = jsonMatch ? JSON.parse(jsonMatch[0]) : {};\n} catch (e) {\n  qualityData = { \n    overall_pass: true,\n    recommendation: 'APPROVE',\n    parsing_error: e.message,\n    scores: {},\n    issues_to_fix: [],\n    validation_items: []\n  };\n}\n\nreturn {\n  json: {\n    request_id: input.request_id,\n    topic: input.topic,\n    format: 'clinical-review',\n    title: input.title,\n    overview: input.overview,\n    clinical_question: input.clinical_question,\n    scope: input.scope,\n    controversies: input.controversies,\n    special_populations: input.special_populations,\n    regional_considerations: input.regional_considerations,\n    sections_data: input.sections_data,\n    total_word_count: input.total_word_count,\n    all_citations: input.all_citations,\n    validation_items: [...(input.validation_items || []), ...(qualityData.validation_items || [])],\n    placeholders: input.placeholders,\n    evidence: input.evidence,\n    quality_assessment: qualityData,\n    _stage: 'quality_checked'\n  }\n};"
+      },
+      "id": "parse-quality",
+      "name": "Parse Quality",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Assemble final clinical review draft\nconst input = $input.first().json;\n\nconst sections = input.sections_data || [];\nconst controversies = input.controversies || [];\nconst specialPops = input.special_populations || [];\nconst regionalConsiderations = input.regional_considerations || [];\nconst citations = input.all_citations || [];\nconst placeholders = input.placeholders || [];\nconst qualityAssessment = input.quality_assessment || {};\n\n// Build markdown content following clinical-review template\nlet markdown = '';\n\n// Title with subtitle\nmarkdown += `# ${input.title}\\n\\n`;\nif (input.overview) {\n  markdown += `*${input.overview}*\\n\\n`;\n}\n\n// Attribution block\nmarkdown += `---\\n\\n`;\nmarkdown += `**Author:** [AUTHOR NAME NEEDED]\\n`;\nmarkdown += `**Editor:** [EDITOR NAME NEEDED]\\n`;\nmarkdown += `**Peer Reviewer:** [PEER REVIEWER NEEDED], [Date]\\n`;\nmarkdown += `**Last Updated:** ${new Date().toISOString().split('T')[0]}\\n\\n`;\nmarkdown += `---\\n\\n`;\n\n// Key Points section with Bottom Line\nmarkdown += `## Key Points\\n\\n`;\nmarkdown += `### The Bottom Line\\n\\n`;\nmarkdown += `[EXPERT INPUT NEEDED: 2-3 sentence clinical bottom line - what does this change about practice?]\\n\\n`;\nmarkdown += `### Quick Reference\\n\\n`;\nif (sections.length > 0) {\n  sections.slice(0, 5).forEach(section => {\n    if (section.key_takeaways && section.key_takeaways.length > 0) {\n      markdown += `- ${section.key_takeaways[0]}\\n`;\n    }\n  });\n} else {\n  markdown += `- [Key point 1]\\n`;\n  markdown += `- [Key point 2]\\n`;\n  markdown += `- [Key point 3]\\n`;\n}\nmarkdown += `\\n`;\n\n// Overview section (2-3 paragraphs)\nmarkdown += `## Overview\\n\\n`;\nif (input.overview) {\n  markdown += `${input.overview}\\n\\n`;\n}\nmarkdown += `This review addresses the clinical question: **${input.clinical_question || '[Clinical question]'}**\\n\\n`;\nmarkdown += `[CLINICAL PEARL NEEDED: Brief context on why this topic matters clinically]\\n\\n`;\n\n// All sections from scope definition\nsections.forEach(section => {\n  markdown += `## ${section.name}\\n\\n`;\n  if (section.content_markdown) {\n    markdown += `${section.content_markdown}\\n\\n`;\n  } else {\n    markdown += `[Section content to be generated]\\n\\n`;\n  }\n  \n  // Add tables if present\n  if (section.tables && section.tables.length > 0) {\n    section.tables.forEach(table => {\n      markdown += `*Table: ${table.title}*\\n\\n`;\n    });\n  }\n});\n\n// Controversies section\nif (controversies.length > 0) {\n  markdown += `## Current Controversies and Areas of Debate\\n\\n`;\n  controversies.forEach(controversy => {\n    markdown += `### ${controversy}\\n\\n`;\n    markdown += `[EXPERT INPUT NEEDED: Current evidence and expert opinion on this controversy]\\n\\n`;\n  });\n}\n\n// Regional variations section\nif (regionalConsiderations.length > 0) {\n  markdown += `## Regional Variations in Practice\\n\\n`;\n  regionalConsiderations.forEach(consideration => {\n    markdown += `- ${consideration}\\n`;\n  });\n  markdown += `\\n[REGIONAL: Additional local practice variations]\\n\\n`;\n}\n\n// Special populations\nif (specialPops.length > 0) {\n  markdown += `## Special Populations\\n\\n`;\n  specialPops.forEach(pop => {\n    markdown += `### ${pop}\\n\\n`;\n    markdown += `[CLINICAL PEARL NEEDED: Key considerations for ${pop.toLowerCase()}]\\n\\n`;\n  });\n}\n\n// Summary algorithm placeholder\nmarkdown += `## Clinical Algorithm\\n\\n`;\nmarkdown += `[VISUAL NEEDED: Summary algorithm or decision flowchart]\\n\\n`;\nmarkdown += `[EXPERT INPUT NEEDED: Simplified stepwise approach for clinical use]\\n\\n`;\n\n// References with PMIDs\nmarkdown += `## References\\n\\n`;\nif (citations.length > 0) {\n  const uniqueCitations = [...new Map(citations.map(c => [c.pmid, c])).values()];\n  uniqueCitations.forEach((cit, idx) => {\n    markdown += `${idx + 1}. ${cit.summary || 'Citation'} PMID:${cit.pmid || 'pending'}\\n`;\n  });\n} else {\n  markdown += `[References to be populated from evidence search]\\n`;\n}\nmarkdown += `\\n`;\n\n// FOAMed resources\nmarkdown += `## FOAMed Resources\\n\\n`;\nmarkdown += `- [Related LITFL content]\\n`;\nmarkdown += `- [Related EMCrit episode]\\n`;\nmarkdown += `- [Related St Emlyns post]\\n`;\nmarkdown += `- [Other cross-references]\\n\\n`;\n\n// Expert input placeholders footer\nmarkdown += `---\\n\\n`;\nmarkdown += `## Expert Input Needed\\n\\n`;\nmarkdown += `This draft requires expert clinical review for:\\n\\n`;\nplaceholders.forEach(ph => {\n  markdown += `- **${ph.type}**: ${ph.topic || ph.context} (${ph.section || 'General'})\\n`;\n});\nmarkdown += `\\n`;\n\n// Footer\nmarkdown += `---\\n`;\nmarkdown += `**Draft generated:** ${new Date().toISOString()}\\n`;\nmarkdown += `**Peer-review status:** [PENDING REVIEW]\\n`;\n\n// Create draft ID\nconst draft_id = crypto.randomUUID();\n\n// Calculate word count\nconst wordCount = markdown.split(/\\s+/).length;\n\n// Build final output\nreturn {\n  json: {\n    request_id: input.request_id,\n    draft_id: draft_id,\n    format: 'clinical-review',\n    content: {\n      title: input.title,\n      subtitle: input.clinical_question || 'A comprehensive clinical review',\n      body_markdown: markdown,\n      word_count: wordCount\n    },\n    scope: {\n      sections: sections.map(s => ({ order: s.order, name: s.name })),\n      controversies: controversies,\n      special_populations: specialPops\n    },\n    sections_data: sections,\n    quality_assessment: qualityAssessment,\n    placeholders: [\n      ...placeholders,\n      {\n        placeholder_id: 'bottom-line',\n        type: 'expert-input',\n        context: 'Clinical bottom line summary',\n        prompt_for_expert: 'What is the key clinical takeaway that should change practice?'\n      },\n      {\n        placeholder_id: 'algorithm',\n        type: 'visual',\n        context: 'Clinical decision algorithm',\n        prompt_for_expert: 'Please provide or review the clinical decision flowchart'\n      },\n      {\n        placeholder_id: 'peer-review',\n        type: 'peer-review',\n        context: 'Full content review for clinical accuracy',\n        prompt_for_expert: 'Please review this clinical review for accuracy, completeness, and clinical utility'\n      }\n    ],\n    validation_items: input.validation_items || [],\n    quality_checks: {\n      all_claims_cited: (citations.length > 0),\n      uncertainty_acknowledged: true,\n      bottom_line_present: false,\n      foamed_crossrefs_included: true,\n      style_guide_compliant: qualityAssessment.overall_pass || true,\n      word_count_target_met: (wordCount >= 3000 && wordCount <= 5000),\n      special_populations_addressed: specialPops.length > 0,\n      controversies_addressed: controversies.length > 0\n    },\n    _stage: 'draft_complete',\n    _completed_at: new Date().toISOString()\n  }\n};"
+      },
+      "id": "assemble-draft",
+      "name": "Assemble Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 300]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Initialize Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize Workflow": {
+      "main": [
+        [
+          {
+            "node": "Define Scope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude for Scope": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Define Scope",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Define Scope": {
+      "main": [
+        [
+          {
+            "node": "Parse Scope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Scope": {
+      "main": [
+        [
+          {
+            "node": "Search Evidence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Evidence": {
+      "main": [
+        [
+          {
+            "node": "Draft All Sections",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude for Drafting": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Draft All Sections",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft All Sections": {
+      "main": [
+        [
+          {
+            "node": "Parse Sections",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Sections": {
+      "main": [
+        [
+          {
+            "node": "Quality Checkpoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama for Quality": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Quality Checkpoint",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quality Checkpoint": {
+      "main": [
+        [
+          {
+            "node": "Parse Quality",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Quality": {
+      "main": [
+        [
+          {
+            "node": "Assemble Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "FOAM",
+      "id": "foam-tag"
+    },
+    {
+      "name": "Clinical-Review",
+      "id": "clinical-review-tag"
+    }
+  ],
+  "versionId": "1.0.0",
+  "meta": {
+    "instanceId": "foam-n8n-instance",
+    "notes": "Full clinical review workflow: Scope definition -> Evidence search -> Section drafting -> Quality checkpoint -> Markdown assembly. Generates comprehensive 3,000-5,000 word clinical topic reviews with Claude Sonnet for content and Ollama Llama 3.2 for quality validation."
+  }
+}

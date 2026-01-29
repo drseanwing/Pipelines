@@ -1,0 +1,588 @@
+{
+  "name": "FOAM Human-in-the-Loop Review",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 300],
+      "notes": "Manual trigger for testing or ad-hoc review requests. Expects: { draft_id, reviewer_assignments: [{ name, email, specialty }] }"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Initialize Review Context\n// Set up the review context by fetching draft from database and preparing review session\n\nconst input = $input.first().json;\n\n// Generate review session ID\nconst reviewSessionId = `review-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;\n\n// Build reviewer list\nconst reviewers = input.reviewer_assignments || [\n  {\n    name: 'Default Reviewer',\n    email: 'reviewer@example.com',\n    specialty: 'Emergency Medicine',\n    role: 'clinical_expert'\n  }\n];\n\nconst reviewContext = {\n  review_session_id: reviewSessionId,\n  draft_id: input.draft_id || `draft-${Date.now()}`,\n  draft_title: input.draft_title || 'Untitled Draft',\n  draft_content: input.draft_content || '',\n  draft_version: input.draft_version || '1.0',\n  format: input.format || 'clinical-review',\n  topic: input.topic || {},\n  \n  // Reviewer configuration\n  reviewers: reviewers,\n  primary_reviewer: reviewers[0] || {},\n  total_reviewers: reviewers.length,\n  \n  // Review settings\n  review_due_date: input.review_due_date || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),\n  urgency: input.urgency || 'medium',\n  review_portal_url: `${$vars.REVIEWER_PORTAL_URL || 'https://review.foam.edu'}/review/${reviewSessionId}`,\n  \n  // Content creator info\n  content_creator: input.content_creator || {\n    name: 'Content Team',\n    email: 'content@foam.edu'\n  },\n  \n  // Tracking\n  _stage: 'review_initialized',\n  _workflow: 'hitl-review',\n  _started_at: new Date().toISOString()\n};\n\nreturn { json: reviewContext };"
+      },
+      "id": "init-review",
+      "name": "Initialize Review",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Load Validation Results\n// Fetch validation outputs (doses, claims, conflicts) from previous workflow stages\n\nconst input = $input.first().json;\n\n// In production, this would query the database for validation results\n// For now, we structure the expected validation data format\n\nconst validationResults = {\n  validation_id: input.validation_id || `val-${input.draft_id}`,\n  draft_id: input.draft_id,\n  \n  // Dose extraction results (from validation-system.json)\n  dose_extraction: input.dose_extraction || {\n    extraction_summary: {\n      total_items: 0,\n      high_priority: 0,\n      medium_priority: 0,\n      low_priority: 0,\n      uncited_items: 0\n    },\n    drug_doses: [],\n    clinical_thresholds: [],\n    lab_values: [],\n    timeframes: [],\n    contraindications: []\n  },\n  \n  // Claim verification results\n  claim_verification: input.claim_verification || {\n    verification_summary: {\n      total_claims: 0,\n      accurate: 0,\n      partially_accurate: 0,\n      inaccurate: 0,\n      unverifiable: 0\n    },\n    verified_claims: [],\n    flagged_claims: [],\n    uncited_claims: [],\n    outdated_claims: [],\n    recommendations: []\n  },\n  \n  // Guideline conflict results\n  guideline_conflicts: input.guideline_conflicts || {\n    conflict_summary: {\n      total_recommendations_checked: 0,\n      direct_conflicts: 0,\n      potential_conflicts: 0,\n      outdated_references: 0,\n      regional_variations: 0,\n      omissions: 0,\n      strength_mismatches: 0\n    },\n    conflicts: [],\n    regional_variations: [],\n    omissions: [],\n    guideline_alignment_score: 0,\n    priority_actions: []\n  },\n  \n  // Quality assessment\n  quality_assessment: input.quality_assessment || {\n    overall_pass: true,\n    recommendation: 'REVIEW_NEEDED'\n  },\n  \n  // Validation status\n  validation_status: input.validation_status || 'PENDING_REVIEW',\n  \n  _loaded_at: new Date().toISOString()\n};\n\n// Merge with review context\nconst result = {\n  ...input,\n  validation_results: validationResults,\n  _stage: 'validation_loaded'\n};\n\nreturn { json: result };"
+      },
+      "id": "load-validation",
+      "name": "Load Validation Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare Reviewer Checklist\n// Combine validation outputs into a structured reviewer checklist\n\nconst input = $input.first().json;\nconst validation = input.validation_results || {};\n\n// Extract summaries for checklist\nconst doseSummary = validation.dose_extraction?.extraction_summary || {};\nconst claimSummary = validation.claim_verification?.verification_summary || {};\nconst guidelineSummary = validation.guideline_conflicts?.conflict_summary || {};\n\n// Calculate priority counts\nconst highPriorityCount = (doseSummary.high_priority || 0) + \n  (claimSummary.inaccurate || 0) + \n  (guidelineSummary.direct_conflicts || 0);\n\nconst mediumPriorityCount = (doseSummary.medium_priority || 0) + \n  (claimSummary.partially_accurate || 0) + \n  (guidelineSummary.potential_conflicts || 0);\n\nconst totalItems = (doseSummary.total_items || 0) + \n  (claimSummary.total_claims || 0) + \n  (guidelineSummary.total_recommendations_checked || 0);\n\n// Estimate review time: base 10min + 2min per HIGH + 1min per MEDIUM\nconst estimatedMinutes = 10 + (highPriorityCount * 2) + (mediumPriorityCount * 1);\n\n// Build checklist structure\nconst reviewerChecklist = {\n  checklist_metadata: {\n    checklist_id: `chk-${Date.now()}`,\n    draft_id: input.draft_id,\n    draft_title: input.draft_title,\n    generated_at: new Date().toISOString(),\n    estimated_review_time: `${estimatedMinutes} minutes`,\n    priority_level: highPriorityCount > 5 ? 'HIGH' : highPriorityCount > 2 ? 'MEDIUM' : 'LOW'\n  },\n  \n  validation_findings_summary: {\n    total_items_requiring_verification: totalItems,\n    breakdown: {\n      high_priority_doses: doseSummary.high_priority || 0,\n      medium_priority_doses: doseSummary.medium_priority || 0,\n      clinical_thresholds: validation.dose_extraction?.clinical_thresholds?.length || 0,\n      statistical_claims: claimSummary.total_claims || 0,\n      guideline_checks: guidelineSummary.total_recommendations_checked || 0,\n      uncited_items: doseSummary.uncited_items || 0\n    },\n    critical_safety_flags: [],\n    conflicting_guidelines_noted: guidelineSummary.direct_conflicts || 0,\n    missing_citations: claimSummary.unverifiable || 0\n  },\n  \n  clinical_accuracy: {\n    doses_to_verify: validation.dose_extraction?.drug_doses || [],\n    thresholds_to_confirm: validation.dose_extraction?.clinical_thresholds || [],\n    claims_to_verify: validation.claim_verification?.flagged_claims || [],\n    guideline_alignment: validation.guideline_conflicts?.conflicts || []\n  },\n  \n  clinical_pearls_needed: {\n    total_pearls_requested: 0,\n    high_priority: 0,\n    medium_priority: 0,\n    low_priority: 0,\n    topics: []\n  },\n  \n  regional_considerations: validation.guideline_conflicts?.regional_variations || [],\n  \n  special_populations: [],\n  \n  content_completeness: {\n    missing_sections: [],\n    sections_needing_expansion: []\n  },\n  \n  reviewer_instructions: {\n    steps: [\n      'Review the clinical accuracy section first (drug doses, thresholds)',\n      'Verify all statistical claims against cited sources',\n      'Check guideline alignment and flag any conflicts',\n      'Provide clinical pearls from your expert experience',\n      'Note any regional variations applicable to your context',\n      'Assess content completeness and suggest improvements'\n    ],\n    navigation_tips: [\n      'High-priority items are marked with [HIGH] tags',\n      'Use the verification checkboxes to track progress',\n      'Add inline comments for specific suggestions'\n    ]\n  }\n};\n\n// Build result with checklist\nconst result = {\n  ...input,\n  reviewer_checklist: reviewerChecklist,\n  estimated_review_time: `${estimatedMinutes} minutes`,\n  priority_level: reviewerChecklist.checklist_metadata.priority_level,\n  _stage: 'checklist_prepared'\n};\n\nreturn { json: result };"
+      },
+      "id": "prepare-checklist",
+      "name": "Prepare Checklist",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'You are generating professional review request notifications for expert clinical reviewers to validate draft FOAM content.\\n\\n## Draft Content Metadata\\n' + JSON.stringify({\\n  draft_id: $json.draft_id,\\n  title: $json.draft_title,\\n  format: $json.format,\\n  draft_version: $json.draft_version\\n}, null, 2) + '\\n\\n## Validation Findings Summary\\n' + JSON.stringify($json.reviewer_checklist.validation_findings_summary, null, 2) + '\\n\\n## Reviewer Checklist Summary\\n' + JSON.stringify($json.reviewer_checklist.checklist_metadata, null, 2) + '\\n\\n## Reviewer Information\\n' + JSON.stringify($json.primary_reviewer, null, 2) + '\\n\\n## Review Logistics\\n' + JSON.stringify({\\n  review_due_date: $json.review_due_date,\\n  review_url: $json.review_portal_url,\\n  content_creator_name: $json.content_creator?.name,\\n  content_creator_contact: $json.content_creator?.email,\\n  urgency: $json.urgency\\n}, null, 2) + '\\n\\n## Task\\n\\nGenerate professional review request notifications in multiple formats optimized for different communication channels.\\n\\n## Output Format\\n\\nReturn as JSON with these components:\\n\\n{\\n  \"notification_metadata\": {\\n    \"notification_id\": \"uuid\",\\n    \"draft_id\": \"uuid\",\\n    \"reviewer_id\": \"reviewer identifier\",\\n    \"generated_at\": \"ISO timestamp\",\\n    \"urgency_level\": \"HIGH|MEDIUM|LOW\",\\n    \"estimated_review_time\": \"X minutes\"\\n  },\\n  \"email_notification\": {\\n    \"subject\": \"Email subject line\",\\n    \"body_markdown\": \"Full email body in markdown\",\\n    \"priority\": \"high|normal|low\"\\n  },\\n  \"slack_notification\": {\\n    \"message\": \"Slack message with formatting\",\\n    \"blocks\": []\\n  },\\n  \"sms_notification\": {\\n    \"message\": \"Short SMS (160 chars max)\"\\n  }\\n}\\n\\nFollow the tone guidelines: collegial, expert-to-expert, respectful of their time, clear about expectations, appreciative.\\n\\nGenerate the notifications now.' }}",
+        "options": {
+          "temperature": 0.4
+        }
+      },
+      "id": "generate-notification",
+      "name": "Generate Notification",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "baseUrl": "http://host.docker.internal:11434",
+        "model": "llama3.2:latest",
+        "options": {
+          "temperature": 0.4
+        }
+      },
+      "id": "ollama-llama-notification",
+      "name": "Ollama Llama 3.2 (Notification)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [880, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Send Notifications\n// Parse notification output and send via configured channels (email, Slack)\n\nconst input = $input.first().json;\nconst notificationOutput = input.output || input.text || '{}';\n\n// Parse notification JSON from LLM response\nlet notifications;\ntry {\n  const jsonMatch = notificationOutput.match(/\\{[\\s\\S]*\\}/);\n  notifications = jsonMatch ? JSON.parse(jsonMatch[0]) : {};\n} catch (e) {\n  notifications = {\n    notification_metadata: {\n      notification_id: `notif-${Date.now()}`,\n      parse_error: e.message\n    },\n    email_notification: {\n      subject: `[Review Requested] ${input.draft_title || 'Clinical Review'}`,\n      body_markdown: 'Review request notification - please check the review portal.',\n      priority: 'normal'\n    },\n    slack_notification: {\n      message: `New review request for: ${input.draft_title || 'Clinical Review'}`\n    }\n  };\n}\n\n// Build notification payloads for downstream nodes\nconst emailPayload = {\n  to: input.primary_reviewer?.email || 'reviewer@example.com',\n  subject: notifications.email_notification?.subject || `Review Request: ${input.draft_title}`,\n  body: notifications.email_notification?.body_markdown || 'Please review the attached content.',\n  priority: notifications.email_notification?.priority || 'normal'\n};\n\nconst slackPayload = {\n  webhook_url: $vars.SLACK_WEBHOOK_URL || '',\n  message: notifications.slack_notification?.message || `Review request: ${input.draft_title}`,\n  blocks: notifications.slack_notification?.blocks || []\n};\n\n// Clean up context - remove LLM output fields\nconst cleanedInput = { ...input };\ndelete cleanedInput.output;\ndelete cleanedInput.text;\n\nconst result = {\n  ...cleanedInput,\n  notifications: notifications,\n  email_payload: emailPayload,\n  slack_payload: slackPayload,\n  notifications_sent_at: new Date().toISOString(),\n  _stage: 'notifications_sent'\n};\n\nreturn { json: result };"
+      },
+      "id": "send-notifications",
+      "name": "Send Notifications",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "amount": 7,
+        "unit": "days"
+      },
+      "id": "wait-for-review",
+      "name": "Wait for Review",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1320, 300],
+      "webhookId": "hitl-review-wait",
+      "notes": "Wait for reviewer submission or timeout after 7 days. Can be resumed via webhook."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Receive Feedback\n// Process incoming reviewer feedback submission\n\nconst input = $input.first().json;\n\n// In production, this would receive the actual feedback payload\n// from the reviewer portal webhook submission\n\nconst reviewerFeedback = input.reviewer_feedback || {\n  feedback_id: `fb-${Date.now()}`,\n  review_session_id: input.review_session_id,\n  draft_id: input.draft_id,\n  reviewer: input.primary_reviewer || {},\n  submitted_at: new Date().toISOString(),\n  \n  // Checklist responses\n  clinical_accuracy: {\n    doses_verified: [],\n    thresholds_confirmed: [],\n    claims_verified: [],\n    guideline_alignment_checked: []\n  },\n  \n  // Corrections provided\n  corrections: [],\n  \n  // Suggestions provided\n  suggestions: [],\n  \n  // Clinical pearls contributed\n  clinical_pearls: [],\n  \n  // Regional variations noted\n  regional_notes: [],\n  \n  // Special population considerations\n  special_population_notes: [],\n  \n  // Free-text comments\n  general_comments: '',\n  \n  // Overall assessment\n  overall_assessment: {\n    recommendation: 'APPROVE_WITH_CHANGES',\n    confidence: 'HIGH',\n    major_concerns: [],\n    summary: 'Draft is clinically sound with minor corrections needed.'\n  },\n  \n  // Signoff\n  signoff: {\n    signed: true,\n    signed_at: new Date().toISOString()\n  }\n};\n\nconst result = {\n  ...input,\n  reviewer_feedback: reviewerFeedback,\n  feedback_received_at: new Date().toISOString(),\n  _stage: 'feedback_received'\n};\n\nreturn { json: result };"
+      },
+      "id": "receive-feedback",
+      "name": "Receive Feedback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1540, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'You are a clinical feedback processing specialist. Your task is to analyze expert reviewer feedback and transform it into structured, actionable revision instructions.\\n\\n## Original Draft Content\\n\\n**Title:** ' + $json.draft_title + '\\n**Format:** ' + $json.format + '\\n**Draft ID:** ' + $json.draft_id + '\\n\\n## Reviewer Feedback\\n\\n**Reviewer:** ' + JSON.stringify($json.reviewer_feedback?.reviewer || {}) + '\\n\\n**Checklist Responses:**\\n' + JSON.stringify($json.reviewer_feedback?.clinical_accuracy || {}, null, 2) + '\\n\\n**Corrections Provided:**\\n' + JSON.stringify($json.reviewer_feedback?.corrections || [], null, 2) + '\\n\\n**Suggestions:**\\n' + JSON.stringify($json.reviewer_feedback?.suggestions || [], null, 2) + '\\n\\n**Clinical Pearls:**\\n' + JSON.stringify($json.reviewer_feedback?.clinical_pearls || [], null, 2) + '\\n\\n**Overall Assessment:**\\n' + JSON.stringify($json.reviewer_feedback?.overall_assessment || {}, null, 2) + '\\n\\n**General Comments:**\\n' + ($json.reviewer_feedback?.general_comments || 'None provided') + '\\n\\n## Task\\n\\nProcess this feedback into a structured JSON format that:\\n1. Categorizes feedback (CORRECTIONS, SUGGESTIONS, ADDITIONS, CONFLICTS)\\n2. Prioritizes changes (P0-Critical, P1-High, P2-Medium, P3-Low)\\n3. Maps corrections to specific draft sections\\n4. Assesses reviewer sentiment and confidence\\n5. Identifies any unanswered questions\\n\\n## Output Format\\n\\nReturn as JSON:\\n\\n{\\n  \"processing_metadata\": {\\n    \"draft_id\": \"uuid\",\\n    \"reviewer_name\": \"name\",\\n    \"reviewer_specialty\": \"specialty\",\\n    \"processing_date\": \"ISO timestamp\"\\n  },\\n  \"feedback_summary\": {\\n    \"overall_assessment\": \"summary\",\\n    \"reviewer_sentiment\": \"POSITIVE|NEUTRAL|CRITICAL|REJECTING\",\\n    \"recommendation\": \"APPROVE|APPROVE_WITH_CHANGES|MAJOR_REVISION_NEEDED|REJECT\",\\n    \"confidence_in_review\": \"HIGH|MEDIUM|LOW\",\\n    \"estimated_revision_time\": \"X hours\",\\n    \"major_concerns\": 0,\\n    \"moderate_concerns\": 0,\\n    \"minor_suggestions\": 0,\\n    \"clinical_pearls_provided\": 0\\n  },\\n  \"corrections\": [\\n    {\\n      \"correction_id\": \"corr-001\",\\n      \"priority\": \"P0|P1|P2|P3\",\\n      \"type\": \"dose_correction|threshold|statistical_claim|guideline\",\\n      \"section\": \"Section Name\",\\n      \"draft_states\": \"incorrect value\",\\n      \"correct_value\": \"corrected value\",\\n      \"rationale\": \"why correction needed\",\\n      \"source\": \"PMID or guideline\",\\n      \"confidence_level\": \"HIGH|MEDIUM|LOW\",\\n      \"patient_safety_critical\": true\\n    }\\n  ],\\n  \"suggestions\": [...],\\n  \"clinical_pearls\": [...],\\n  \"additions\": [...],\\n  \"verification_confirmations\": [...],\\n  \"unanswered_questions\": [...],\\n  \"next_steps\": {\\n    \"immediate_actions\": [],\\n    \"requires_additional_review\": []\\n  }\\n}\\n\\nProcess the feedback thoroughly. Be systematic in categorization and prioritization.' }}",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "process-feedback",
+      "name": "Process Feedback",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [1760, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "temperature": 0.3,
+          "maxTokensToSample": 8192
+        }
+      },
+      "id": "claude-sonnet-feedback",
+      "name": "Claude Sonnet (Feedback)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [1760, 500],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credential",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.processed_feedback?.corrections?.length > 0 || $json.processed_feedback?.suggestions?.filter(s => s.priority === 'P0' || s.priority === 'P1').length > 0 }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "revisions-router",
+      "name": "Apply Revisions Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1980, 300],
+      "notes": "Routes to revision application if corrections exist, otherwise proceeds to approval assessment."
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'You are applying structured reviewer feedback to draft clinical content, producing a revised version with transparent change tracking.\\n\\n## Original Draft Content\\n\\n**Title:** ' + $json.draft_title + '\\n**Format:** ' + $json.format + '\\n**Version:** ' + $json.draft_version + '\\n\\n**Draft Content:**\\n' + ($json.draft_content || '[Draft content not available]').substring(0, 8000) + '\\n\\n## Processed Feedback to Apply\\n\\n**Corrections (MUST apply all):**\\n' + JSON.stringify($json.processed_feedback?.corrections || [], null, 2) + '\\n\\n**Suggestions (apply based on priority):**\\n' + JSON.stringify($json.processed_feedback?.suggestions || [], null, 2) + '\\n\\n**Clinical Pearls to Integrate:**\\n' + JSON.stringify($json.processed_feedback?.clinical_pearls || [], null, 2) + '\\n\\n**Additions:**\\n' + JSON.stringify($json.processed_feedback?.additions || [], null, 2) + '\\n\\n## Revision Priority\\n\\nApply: ALL corrections, all HIGH priority suggestions, integrate clinical pearls.\\n\\n## Task\\n\\nApply the feedback to the draft following these protocols:\\n1. Apply ALL corrections (mandatory, safety-critical first)\\n2. Integrate clinical pearls with reviewer attribution\\n3. Apply high-priority suggestions\\n4. Preserve original content unless explicitly corrected\\n5. Maintain consistent formatting and style\\n6. Track all changes made\\n\\n## Output Format\\n\\nReturn as JSON:\\n\\n{\\n  \"revised_draft\": \"Full markdown content with revisions applied\",\\n  \"revision_version\": \"2.0\",\\n  \"changes_applied\": [\\n    {\\n      \"change_id\": \"change-001\",\\n      \"change_type\": \"correction|suggestion|pearl\",\\n      \"section\": \"Section Name\",\\n      \"original_text\": \"before\",\\n      \"revised_text\": \"after\",\\n      \"rationale\": \"why changed\",\\n      \"reviewer_attribution\": \"Reviewer Name\",\\n      \"safety_critical\": true\\n    }\\n  ],\\n  \"changes_deferred\": [],\\n  \"word_count_before\": 0,\\n  \"word_count_after\": 0,\\n  \"corrections_applied\": 0,\\n  \"suggestions_applied\": 0,\\n  \"clinical_pearls_integrated\": 0,\\n  \"integrity_checks\": {\\n    \"all_sections_intact\": true,\\n    \"formatting_consistent\": true,\\n    \"citations_valid\": true\\n  },\\n  \"revision_notes\": \"Summary of revision\",\\n  \"next_steps\": \"Ready for approval assessment\"\\n}\\n\\nApply revisions systematically. Corrections always take precedence. Preserve author voice.' }}",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "apply-revisions",
+      "name": "Apply Revisions",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [2200, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "temperature": 0.2,
+          "maxTokensToSample": 16384
+        }
+      },
+      "id": "claude-sonnet-revision",
+      "name": "Claude Sonnet (Revision)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [2200, 500],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credential",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Update Draft in Database\n// Store the revised draft and update workflow state\n\nconst input = $input.first().json;\nconst revisionOutput = input.output || input.text || '{}';\n\n// Parse revision results\nlet revisionData;\ntry {\n  const jsonMatch = revisionOutput.match(/\\{[\\s\\S]*\\}/);\n  revisionData = jsonMatch ? JSON.parse(jsonMatch[0]) : {};\n} catch (e) {\n  revisionData = {\n    revised_draft: input.draft_content || '',\n    revision_version: '2.0',\n    changes_applied: [],\n    parse_error: e.message\n  };\n}\n\n// Build database update payload\nconst draftUpdate = {\n  draft_id: input.draft_id,\n  \n  // Updated content\n  content: revisionData.revised_draft || input.draft_content,\n  version: revisionData.revision_version || '2.0',\n  \n  // Revision metadata\n  revision_metadata: {\n    previous_version: input.draft_version,\n    revision_date: new Date().toISOString(),\n    reviewer_session: input.review_session_id,\n    changes_applied: revisionData.changes_applied || [],\n    changes_deferred: revisionData.changes_deferred || [],\n    corrections_count: revisionData.corrections_applied || 0,\n    suggestions_count: revisionData.suggestions_applied || 0,\n    pearls_integrated: revisionData.clinical_pearls_integrated || 0\n  },\n  \n  // Quality metrics\n  word_count: revisionData.word_count_after || 0,\n  integrity_checks: revisionData.integrity_checks || {},\n  \n  // Status\n  status: 'revised',\n  _updated_at: new Date().toISOString()\n};\n\n// Clean up context\nconst cleanedInput = { ...input };\ndelete cleanedInput.output;\ndelete cleanedInput.text;\n\nconst result = {\n  ...cleanedInput,\n  revised_draft: revisionData.revised_draft || input.draft_content,\n  draft_version: revisionData.revision_version || '2.0',\n  revision_data: revisionData,\n  draft_update: draftUpdate,\n  _stage: 'draft_updated'\n};\n\nreturn { json: result };"
+      },
+      "id": "update-draft",
+      "name": "Update Draft in DB",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2420, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'You are evaluating complete draft content and review feedback to determine if content is ready for publication.\\n\\n## Draft Information\\n\\n**Title:** ' + $json.draft_title + '\\n**Draft ID:** ' + $json.draft_id + '\\n**Version:** ' + $json.draft_version + '\\n**Review Cycle:** ' + ($json.review_cycle || 1) + '\\n\\n## Verification Summary\\n\\n**Dose Extraction:**\\n' + JSON.stringify($json.validation_results?.dose_extraction?.extraction_summary || {}, null, 2) + '\\n\\n**Claim Verification:**\\n' + JSON.stringify($json.validation_results?.claim_verification?.verification_summary || {}, null, 2) + '\\n\\n**Guideline Conflicts:**\\n' + JSON.stringify($json.validation_results?.guideline_conflicts?.conflict_summary || {}, null, 2) + '\\n\\n## Reviewer Feedback Summary\\n\\n' + JSON.stringify($json.processed_feedback?.feedback_summary || $json.reviewer_feedback?.overall_assessment || {}, null, 2) + '\\n\\n## Revision Data\\n\\n' + JSON.stringify($json.revision_data || {}, null, 2) + '\\n\\n## Task\\n\\nAssess publication readiness based on:\\n1. Verification completeness (doses, claims, guidelines)\\n2. Quality gate results (accuracy, evidence, completeness, style)\\n3. Reviewer signoff status\\n4. Outstanding issues assessment\\n\\n## Decision Logic\\n\\n- APPROVED: All critical items verified, no safety concerns, reviewer approves\\n- APPROVED_WITH_MINOR_CHANGES: All critical items OK, <3 minor suggestions pending\\n- REVISIONS_REQUIRED: 3-10 moderate issues, some verification needed\\n- MAJOR_REVISIONS_REQUIRED: >10 issues, major content gaps\\n- REJECTED: Fundamental issues, safety concerns unresolvable\\n\\n## Output Format\\n\\nReturn as JSON:\\n\\n{\\n  \"approval_metadata\": {\\n    \"assessment_date\": \"ISO timestamp\",\\n    \"draft_id\": \"uuid\",\\n    \"draft_title\": \"title\",\\n    \"review_cycle\": 1\\n  },\\n  \"approval_status\": \"approved|approved_with_minor_changes|revisions_required|major_revisions_required|rejected\",\\n  \"approval_confidence\": 0.95,\\n  \"verification_summary\": {\\n    \"doses_pass\": true,\\n    \"claims_pass\": true,\\n    \"guidelines_pass\": true,\\n    \"pearls_pass\": true\\n  },\\n  \"quality_gate_results\": {\\n    \"clinical_accuracy\": {\"status\": \"pass\", \"score\": 0.95},\\n    \"evidence_quality\": {\"status\": \"pass\", \"score\": 0.90},\\n    \"completeness\": {\"status\": \"pass\", \"score\": 0.92},\\n    \"style_compliance\": {\"status\": \"pass\", \"score\": 0.88}\\n  },\\n  \"outstanding_items\": [],\\n  \"conditions\": [],\\n  \"publication_ready\": true,\\n  \"recommended_actions\": [],\\n  \"approval_rationale\": \"Explanation of decision\",\\n  \"next_steps\": {\\n    \"immediate\": \"action\",\\n    \"publication_target\": \"date estimate\"\\n  }\\n}\\n\\nProvide thorough assessment. Safety concerns must block publication.' }}",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "assess-approval",
+      "name": "Assess Approval",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [2640, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "temperature": 0.2,
+          "maxTokensToSample": 4096
+        }
+      },
+      "id": "claude-sonnet-approval",
+      "name": "Claude Sonnet (Approval)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [2640, 500],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credential",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.approval_assessment?.approval_status }}",
+              "operation": "regex",
+              "value2": "^approved"
+            }
+          ]
+        }
+      },
+      "id": "route-by-status",
+      "name": "Route by Status",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2860, 300],
+      "notes": "Routes approved content to publication queue, revisions needed to re-review loop."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Notify Approval - Send to Publication Queue\n// Content approved, send notification and queue for publication\n\nconst input = $input.first().json;\n\nconst approvalNotification = {\n  notification_type: 'approval',\n  draft_id: input.draft_id,\n  draft_title: input.draft_title,\n  \n  approval_details: {\n    status: input.approval_assessment?.approval_status || 'approved',\n    confidence: input.approval_assessment?.approval_confidence || 0.95,\n    conditions: input.approval_assessment?.conditions || [],\n    rationale: input.approval_assessment?.approval_rationale || 'Content approved for publication'\n  },\n  \n  publication_queue: {\n    queued_at: new Date().toISOString(),\n    estimated_publish_date: input.approval_assessment?.next_steps?.publication_target || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),\n    priority: input.priority_level || 'MEDIUM'\n  },\n  \n  notifications_to_send: [\n    {\n      recipient: input.content_creator?.email || 'content@foam.edu',\n      type: 'email',\n      subject: `[Approved] ${input.draft_title} ready for publication`,\n      message: `Your clinical review \"${input.draft_title}\" has been approved for publication.`\n    },\n    {\n      recipient: input.primary_reviewer?.email,\n      type: 'email',\n      subject: `Thank you for reviewing: ${input.draft_title}`,\n      message: 'Thank you for your expert review. The content has been approved for publication.'\n    }\n  ],\n  \n  _stage: 'approved_notified',\n  _completed_at: new Date().toISOString()\n};\n\nreturn { json: { ...input, approval_notification: approvalNotification } };"
+      },
+      "id": "notify-approval",
+      "name": "Notify Approval",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3080, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Request Re-review\n// Content needs revisions, notify and prepare for another review cycle\n\nconst input = $input.first().json;\n\nconst reReviewRequest = {\n  notification_type: 're-review-request',\n  draft_id: input.draft_id,\n  draft_title: input.draft_title,\n  \n  revision_details: {\n    status: input.approval_assessment?.approval_status || 'revisions_required',\n    outstanding_items: input.approval_assessment?.outstanding_items || [],\n    recommended_actions: input.approval_assessment?.recommended_actions || [],\n    estimated_revision_time: input.processed_feedback?.feedback_summary?.estimated_revision_time || '2-3 hours'\n  },\n  \n  next_review_cycle: {\n    cycle_number: (input.review_cycle || 1) + 1,\n    suggested_due_date: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),\n    focus_areas: input.approval_assessment?.conditions || []\n  },\n  \n  notifications_to_send: [\n    {\n      recipient: input.content_creator?.email || 'content@foam.edu',\n      type: 'email',\n      subject: `[Revisions Needed] ${input.draft_title}`,\n      message: `Your clinical review \"${input.draft_title}\" requires revisions before publication. Please address the outstanding items.`\n    }\n  ],\n  \n  _stage: 're_review_requested',\n  _timestamp: new Date().toISOString()\n};\n\nreturn { json: { ...input, re_review_request: reReviewRequest } };"
+      },
+      "id": "request-re-review",
+      "name": "Request Re-review",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3080, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log Workflow Completion\n// Final logging of the HITL review workflow outcome\n\nconst input = $input.first().json;\n\nconst completionLog = {\n  workflow: 'hitl-review',\n  review_session_id: input.review_session_id,\n  draft_id: input.draft_id,\n  draft_title: input.draft_title,\n  \n  // Timing\n  started_at: input._started_at,\n  completed_at: new Date().toISOString(),\n  \n  // Outcome\n  final_status: input.approval_assessment?.approval_status || \n    (input.approval_notification ? 'approved' : 'pending'),\n  publication_ready: input.approval_assessment?.publication_ready || false,\n  \n  // Metrics\n  review_cycles_completed: input.review_cycle || 1,\n  corrections_applied: input.revision_data?.corrections_applied || 0,\n  suggestions_applied: input.revision_data?.suggestions_applied || 0,\n  clinical_pearls_integrated: input.revision_data?.clinical_pearls_integrated || 0,\n  \n  // Reviewer info\n  reviewers: input.reviewers?.map(r => r.name) || [],\n  primary_reviewer: input.primary_reviewer?.name || 'Unknown',\n  \n  // Quality scores\n  quality_scores: input.approval_assessment?.quality_gate_results || {},\n  approval_confidence: input.approval_assessment?.approval_confidence || 0,\n  \n  // Next actions\n  next_steps: input.approval_assessment?.next_steps || \n    input.re_review_request?.next_review_cycle || {},\n  \n  _log_timestamp: new Date().toISOString()\n};\n\n// Return final result\nreturn {\n  json: {\n    success: true,\n    workflow: 'hitl-review',\n    draft_id: input.draft_id,\n    draft_title: input.draft_title,\n    final_status: completionLog.final_status,\n    publication_ready: completionLog.publication_ready,\n    completion_log: completionLog,\n    \n    // Include full context for downstream workflows\n    approval_assessment: input.approval_assessment,\n    revision_data: input.revision_data,\n    processed_feedback: input.processed_feedback,\n    \n    _completed_at: new Date().toISOString()\n  }\n};"
+      },
+      "id": "log-completion",
+      "name": "Log Completion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3300, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Feedback Processing Output\n// Extract structured feedback from Claude processing\n\nconst input = $input.first().json;\nconst feedbackOutput = input.output || input.text || '{}';\n\nlet processedFeedback;\ntry {\n  const jsonMatch = feedbackOutput.match(/\\{[\\s\\S]*\\}/);\n  processedFeedback = jsonMatch ? JSON.parse(jsonMatch[0]) : {};\n} catch (e) {\n  processedFeedback = {\n    processing_metadata: {\n      draft_id: input.draft_id,\n      parse_error: e.message\n    },\n    feedback_summary: {\n      recommendation: 'APPROVE_WITH_CHANGES',\n      confidence_in_review: 'MEDIUM'\n    },\n    corrections: [],\n    suggestions: [],\n    clinical_pearls: []\n  };\n}\n\n// Clean up context\nconst cleanedInput = { ...input };\ndelete cleanedInput.output;\ndelete cleanedInput.text;\n\nconst result = {\n  ...cleanedInput,\n  processed_feedback: processedFeedback,\n  _stage: 'feedback_processed'\n};\n\nreturn { json: result };"
+      },
+      "id": "parse-feedback",
+      "name": "Parse Feedback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1870, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Approval Assessment Output\n// Extract structured approval assessment from Ollama processing\n\nconst input = $input.first().json;\nconst approvalOutput = input.output || input.text || '{}';\n\nlet approvalAssessment;\ntry {\n  const jsonMatch = approvalOutput.match(/\\{[\\s\\S]*\\}/);\n  approvalAssessment = jsonMatch ? JSON.parse(jsonMatch[0]) : {};\n} catch (e) {\n  approvalAssessment = {\n    approval_metadata: {\n      assessment_date: new Date().toISOString(),\n      draft_id: input.draft_id,\n      parse_error: e.message\n    },\n    approval_status: 'revisions_required',\n    approval_confidence: 0.5,\n    publication_ready: false,\n    approval_rationale: 'Unable to parse assessment, defaulting to revisions required'\n  };\n}\n\n// Clean up context\nconst cleanedInput = { ...input };\ndelete cleanedInput.output;\ndelete cleanedInput.text;\n\nconst result = {\n  ...cleanedInput,\n  approval_assessment: approvalAssessment,\n  _stage: 'approval_assessed'\n};\n\nreturn { json: result };"
+      },
+      "id": "parse-approval",
+      "name": "Parse Approval",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2750, 200]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Initialize Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize Review": {
+      "main": [
+        [
+          {
+            "node": "Load Validation Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Validation Results": {
+      "main": [
+        [
+          {
+            "node": "Prepare Checklist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Checklist": {
+      "main": [
+        [
+          {
+            "node": "Generate Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Llama 3.2 (Notification)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Generate Notification",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Notification": {
+      "main": [
+        [
+          {
+            "node": "Send Notifications",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Notifications": {
+      "main": [
+        [
+          {
+            "node": "Wait for Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Review": {
+      "main": [
+        [
+          {
+            "node": "Receive Feedback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Receive Feedback": {
+      "main": [
+        [
+          {
+            "node": "Process Feedback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Sonnet (Feedback)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Process Feedback",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Feedback": {
+      "main": [
+        [
+          {
+            "node": "Parse Feedback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Feedback": {
+      "main": [
+        [
+          {
+            "node": "Apply Revisions Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Revisions Router": {
+      "main": [
+        [
+          {
+            "node": "Apply Revisions",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Assess Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Sonnet (Revision)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Apply Revisions",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Revisions": {
+      "main": [
+        [
+          {
+            "node": "Update Draft in DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Draft in DB": {
+      "main": [
+        [
+          {
+            "node": "Assess Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Sonnet (Approval)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Assess Approval",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess Approval": {
+      "main": [
+        [
+          {
+            "node": "Parse Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Approval": {
+      "main": [
+        [
+          {
+            "node": "Route by Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Status": {
+      "main": [
+        [
+          {
+            "node": "Notify Approval",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Request Re-review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Approval": {
+      "main": [
+        [
+          {
+            "node": "Log Completion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Request Re-review": {
+      "main": [
+        [
+          {
+            "node": "Log Completion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "FOAM",
+      "id": "foam-tag"
+    },
+    {
+      "name": "HITL",
+      "id": "hitl-tag"
+    },
+    {
+      "name": "Review",
+      "id": "review-tag"
+    },
+    {
+      "name": "Common",
+      "id": "common-tag"
+    }
+  ],
+  "versionId": "1.0.0",
+  "meta": {
+    "instanceId": "foam-n8n-instance",
+    "notes": "Human-in-the-Loop review workflow for FOAM clinical content. Orchestrates the expert review process: loads validation results, prepares reviewer checklists, generates notifications (Ollama Llama 3.2), waits for reviewer feedback, processes feedback (Claude Sonnet for reasoning), applies revisions (Claude Sonnet), assesses approval readiness (Ollama Mistral), and routes to publication or re-review. Supports configurable timeout (default 7 days), multiple reviewers, and email/Slack notifications."
+  }
+}

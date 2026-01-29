@@ -1,0 +1,289 @@
+{
+  "name": "QI-Research Pipeline Master",
+  "id": "master-workflow-001",
+  "tags": ["qi", "research", "pipeline", "master"],
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "qi-research-intake",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook: Intake Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "intake-trigger"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Validate required intake fields\nconst requiredFields = [\n  'project_title',\n  'project_type',\n  'concept_description',\n  'clinical_problem',\n  'target_population',\n  'setting',\n  'principal_investigator',\n  'intended_outcomes'\n];\n\nconst data = $input.first().json.body;\nconst errors = [];\n\nfor (const field of requiredFields) {\n  if (!data[field]) {\n    errors.push(`Missing required field: ${field}`);\n  }\n}\n\n// Validate project_type enum\nif (data.project_type && !['QI', 'RESEARCH', 'HYBRID'].includes(data.project_type)) {\n  errors.push('Invalid project_type. Must be QI, RESEARCH, or HYBRID');\n}\n\n// Validate concept_description length\nif (data.concept_description && (data.concept_description.length < 500 || data.concept_description.length > 2000)) {\n  errors.push('concept_description must be between 500-2000 characters');\n}\n\nif (errors.length > 0) {\n  return { valid: false, errors };\n}\n\nreturn { valid: true, data };"
+      },
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "workflowId": "intake-workflow-001",
+        "waitForCompletion": true
+      },
+      "name": "Execute: Intake Stage",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "resumeData": "={{$node[\"Execute: Intake Stage\"].json.project_id}}",
+        "limit": 3600000,
+        "suffix": "intake-approved"
+      },
+      "name": "Wait: Intake Checkpoint",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "workflowId": "research-workflow-001",
+        "waitForCompletion": true
+      },
+      "name": "Execute: Research Stage",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "resumeData": "={{$node[\"Execute: Research Stage\"].json.project_id}}",
+        "limit": 3600000,
+        "suffix": "research-approved"
+      },
+      "name": "Wait: Research Checkpoint",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "workflowId": "methods-workflow-001",
+        "waitForCompletion": true
+      },
+      "name": "Execute: Methods Stage",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "resumeData": "={{$node[\"Execute: Methods Stage\"].json.project_id}}",
+        "limit": 3600000,
+        "suffix": "methods-approved"
+      },
+      "name": "Wait: Methods Checkpoint",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1650, 300]
+    },
+    {
+      "parameters": {
+        "workflowId": "ethics-workflow-001",
+        "waitForCompletion": true
+      },
+      "name": "Execute: Ethics Stage",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [1850, 300]
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "resumeData": "={{$node[\"Execute: Ethics Stage\"].json.project_id}}",
+        "limit": 3600000,
+        "suffix": "ethics-approved"
+      },
+      "name": "Wait: Ethics Checkpoint",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [2050, 300]
+    },
+    {
+      "parameters": {
+        "workflowId": "documents-workflow-001",
+        "waitForCompletion": true
+      },
+      "name": "Execute: Documents Stage",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [2250, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "noreply@qi-research-pipeline.org",
+        "toEmail": "={{$node[\"Execute: Documents Stage\"].json.principal_investigator.email}}",
+        "subject": "QI/Research Pipeline - Final Review Required",
+        "text": "Your project has completed document generation.\\n\\nProject: {{$node[\"Execute: Documents Stage\"].json.project_title}}\\n\\nPlease review all generated documents and approve for submission.\\n\\nAccess your documents: [PROJECT_URL]",
+        "options": {}
+      },
+      "name": "Email: Final Review Notification",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 1,
+      "position": [2450, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2650, 300]
+    }
+  ],
+  "connections": {
+    "Webhook: Intake Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Execute: Intake Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: Intake Stage": {
+      "main": [
+        [
+          {
+            "node": "Wait: Intake Checkpoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait: Intake Checkpoint": {
+      "main": [
+        [
+          {
+            "node": "Execute: Research Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: Research Stage": {
+      "main": [
+        [
+          {
+            "node": "Wait: Research Checkpoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait: Research Checkpoint": {
+      "main": [
+        [
+          {
+            "node": "Execute: Methods Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: Methods Stage": {
+      "main": [
+        [
+          {
+            "node": "Wait: Methods Checkpoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait: Methods Checkpoint": {
+      "main": [
+        [
+          {
+            "node": "Execute: Ethics Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: Ethics Stage": {
+      "main": [
+        [
+          {
+            "node": "Wait: Ethics Checkpoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait: Ethics Checkpoint": {
+      "main": [
+        [
+          {
+            "node": "Execute: Documents Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: Documents Stage": {
+      "main": [
+        [
+          {
+            "node": "Email: Final Review Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email: Final Review Notification": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "Australia/Brisbane"
+  },
+  "staticData": null
+}

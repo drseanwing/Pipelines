@@ -1,0 +1,686 @@
+{
+  "name": "QI-Research Pipeline - Methods Stage",
+  "id": "methods-workflow-001",
+  "tags": ["qi", "research", "methodology", "stage-3"],
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {},
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "id": "methods-trigger"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "prompt": "=You are an expert research methodologist specializing in healthcare quality improvement and clinical research.\n\nBased on the project information and research findings, determine the appropriate study design:\n\n**Project Context:**\n**Title:** {{ $json.intake.project_title }}\n**Project Type:** {{ $json.classification.project_type }}\n**Clinical Problem:** {{ $json.intake.clinical_problem }}\n**Target Population:** {{ $json.intake.target_population }}\n**Setting:** {{ $json.intake.setting }}\n**Intended Outcomes:** {{ $json.intake.intended_outcomes }}\n\n**Evidence Synthesis:**\n{{ JSON.stringify($json.research.evidence_synthesis, null, 2) }}\n\n**Gap Analysis:**\n{{ JSON.stringify($json.research.gap_analysis, null, 2) }}\n\nDetermine the most appropriate study design considering:\n1. Research question type (descriptive, exploratory, explanatory, evaluative)\n2. Available resources and constraints\n3. Ethical considerations\n4. Feasibility in the given setting\n5. Alignment with evidence gaps\n6. Reporting guidelines (SQUIRE, STROBE, CONSORT, etc.)\n\nProvide response in JSON format:\n{\n  \"study_design\": {\n    \"type\": \"DESCRIPTIVE_COHORT|INTERRUPTED_TIME_SERIES|QUASI_EXPERIMENTAL|RANDOMIZED_CONTROLLED|QUALITATIVE|MIXED_METHODS|CASE_CONTROL|CROSS_SECTIONAL\",\n    \"description\": \"Detailed description of the study design\",\n    \"rationale\": \"Why this design is most appropriate\",\n    \"reporting_guideline\": \"SQUIRE|STROBE|CONSORT|COREQ|other\",\n    \"strengths\": [\"List of design strengths\"],\n    \"limitations\": [\"List of design limitations\"],\n    \"ethical_considerations\": [\"List of ethical considerations\"],\n    \"feasibility_assessment\": \"Assessment of feasibility\"\n  }\n}\n\nReturn ONLY the JSON object, no additional text."
+      },
+      "name": "Determine Study Design",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [450, 300],
+      "id": "determine-study-design",
+      "credentials": {
+        "anthropicApi": {
+          "id": "1",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse Study Design Node\n// Extract study design from Claude's response and merge with project data\n\nconst project = $input.first().json;\nconst studyDesignRaw = $input.item(0).json.output;\nconst studyDesign = JSON.parse(studyDesignRaw);\n\nreturn {\n  json: {\n    project: project,\n    methodology: {\n      study_design: studyDesign.study_design\n    }\n  }\n};"
+      },
+      "name": "Parse Study Design",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300],
+      "id": "parse-study-design"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "prompt": "=You are an expert research methodologist defining participant selection criteria.\n\nBased on the project information and study design, define comprehensive participant criteria:\n\n**Project Context:**\n**Title:** {{ $json.project.intake.project_title }}\n**Target Population:** {{ $json.project.intake.target_population }}\n**Setting:** {{ $json.project.intake.setting }}\n\n**Study Design:**\n{{ JSON.stringify($json.methodology.study_design, null, 2) }}\n\n**Evidence Synthesis:**\n{{ JSON.stringify($json.project.research.evidence_synthesis, null, 2) }}\n\nDefine participant criteria including:\n1. Inclusion criteria (specific, measurable, appropriate)\n2. Exclusion criteria (justified, necessary)\n3. Recruitment strategy\n4. Sampling method (random, convenience, purposive, etc.)\n5. Setting-specific considerations\n6. Vulnerable population considerations (if applicable)\n\nProvide response in JSON format:\n{\n  \"participants\": {\n    \"inclusion_criteria\": [\n      {\n        \"criterion\": \"Specific inclusion criterion\",\n        \"rationale\": \"Why this criterion is necessary\"\n      }\n    ],\n    \"exclusion_criteria\": [\n      {\n        \"criterion\": \"Specific exclusion criterion\",\n        \"rationale\": \"Why this exclusion is justified\"\n      }\n    ],\n    \"recruitment_strategy\": {\n      \"method\": \"Description of recruitment method\",\n      \"timeline\": \"Estimated recruitment timeline\",\n      \"location\": \"Where recruitment will occur\",\n      \"approach\": \"How participants will be approached\"\n    },\n    \"sampling_method\": {\n      \"type\": \"RANDOM|CONVENIENCE|PURPOSIVE|STRATIFIED|CLUSTER|other\",\n      \"description\": \"Description of sampling approach\",\n      \"rationale\": \"Why this sampling method is appropriate\"\n    },\n    \"vulnerable_populations\": {\n      \"applicable\": true|false,\n      \"considerations\": [\"List of special considerations if applicable\"]\n    }\n  }\n}\n\nReturn ONLY the JSON object, no additional text."
+      },
+      "name": "Define Participant Criteria",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [850, 300],
+      "id": "define-participant-criteria",
+      "credentials": {
+        "anthropicApi": {
+          "id": "1",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse Participant Criteria Node\n// Extract and merge participant criteria\n\nconst data = $input.first().json;\nconst participantsRaw = $input.item(0).json.output;\nconst participants = JSON.parse(participantsRaw);\n\n// Merge participants into methodology\nconst methodology = {\n  ...data.methodology,\n  participants: participants.participants\n};\n\nreturn {\n  json: {\n    project: data.project,\n    methodology: methodology\n  }\n};"
+      },
+      "name": "Parse Participant Criteria",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 300],
+      "id": "parse-participant-criteria"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "needs-sample-size",
+              "leftValue": "={{ $json.methodology.study_design.type }}",
+              "rightValue": "QUALITATIVE",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Check if Sample Size Needed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1250, 300],
+      "id": "check-sample-size"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "prompt": "=You are an expert biostatistician calculating sample sizes for healthcare research.\n\nBased on the study design and parameters, calculate the required sample size:\n\n**Study Design:**\n{{ JSON.stringify($json.methodology.study_design, null, 2) }}\n\n**Participants:**\n{{ JSON.stringify($json.methodology.participants, null, 2) }}\n\n**Intended Outcomes:**\n{{ $json.project.intake.intended_outcomes }}\n\n**Evidence from Literature:**\n{{ JSON.stringify($json.project.research.evidence_synthesis, null, 2) }}\n\nCalculate sample size considering:\n1. Study design type (cohort, RCT, time series, etc.)\n2. Expected effect size (based on literature)\n3. Statistical power (typically 80-90%)\n4. Significance level (typically 0.05)\n5. Anticipated dropout rate\n6. Multiple comparisons (if applicable)\n7. Clustering effects (if applicable)\n\nProvide response in JSON format:\n{\n  \"sample_size\": {\n    \"calculated_n\": 0,\n    \"recommended_n\": 0,\n    \"calculation_method\": \"Description of calculation method used\",\n    \"assumptions\": [\n      {\n        \"parameter\": \"effect_size|power|alpha|dropout\",\n        \"value\": \"assumed value\",\n        \"source\": \"literature|pilot|expert_opinion|convention\"\n      }\n    ],\n    \"power_analysis\": {\n      \"effect_size\": 0.0,\n      \"power\": 0.0,\n      \"alpha\": 0.05,\n      \"two_tailed\": true\n    },\n    \"adjustments\": [\n      {\n        \"type\": \"dropout|clustering|multiple_comparisons|other\",\n        \"adjustment_factor\": 0.0,\n        \"rationale\": \"Why this adjustment is necessary\"\n      }\n    ],\n    \"feasibility_assessment\": \"Assessment of whether calculated sample size is achievable\",\n    \"alternatives\": [\"Alternative approaches if calculated n is not feasible\"]\n  }\n}\n\nReturn ONLY the JSON object, no additional text."
+      },
+      "name": "Calculate Sample Size",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [1450, 200],
+      "id": "calculate-sample-size",
+      "credentials": {
+        "anthropicApi": {
+          "id": "1",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Skip Sample Size Node\n// For qualitative studies, set sample size to null\n\nconst data = $input.first().json;\n\nreturn {\n  json: {\n    project: data.project,\n    methodology: {\n      ...data.methodology,\n      sample_size: null,\n      sample_size_note: 'Sample size not applicable for qualitative study design. Recruitment will continue until data saturation is achieved.'\n    }\n  }\n};"
+      },
+      "name": "Skip Sample Size",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1450, 400],
+      "id": "skip-sample-size"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse Sample Size Node\n// Extract and merge sample size calculation\n\nconst data = $input.first().json;\nconst sampleSizeRaw = $input.item(0).json.output;\nconst sampleSize = JSON.parse(sampleSizeRaw);\n\nreturn {\n  json: {\n    project: data.project,\n    methodology: {\n      ...data.methodology,\n      sample_size: sampleSize.sample_size\n    }\n  }\n};"
+      },
+      "name": "Parse Sample Size",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1650, 200],
+      "id": "parse-sample-size"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByPosition",
+        "options": {}
+      },
+      "name": "Merge Sample Size Branch",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [1850, 300],
+      "id": "merge-sample-size"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "prompt": "=You are an expert research methodologist defining study outcomes and measures.\n\nBased on the project information and study design, define comprehensive outcome measures:\n\n**Project Context:**\n**Title:** {{ $json.project.intake.project_title }}\n**Intended Outcomes:** {{ $json.project.intake.intended_outcomes }}\n**Clinical Problem:** {{ $json.project.intake.clinical_problem }}\n\n**Study Design:**\n{{ JSON.stringify($json.methodology.study_design, null, 2) }}\n\n**Evidence Synthesis:**\n{{ JSON.stringify($json.project.research.evidence_synthesis, null, 2) }}\n\nDefine outcome measures including:\n1. Primary outcome (single, clearly defined, measurable)\n2. Secondary outcomes (supporting measures)\n3. Measurement instruments and tools\n4. Data collection timepoints\n5. Operational definitions\n6. Validity and reliability of measures\n\nProvide response in JSON format:\n{\n  \"outcomes\": {\n    \"primary\": {\n      \"outcome\": \"Primary outcome description\",\n      \"measurement\": \"How it will be measured\",\n      \"instrument\": \"Measurement tool/instrument\",\n      \"timepoints\": [\"List of measurement timepoints\"],\n      \"operational_definition\": \"Clear operational definition\",\n      \"validity\": \"Evidence of validity\",\n      \"reliability\": \"Evidence of reliability\",\n      \"rationale\": \"Why this is the primary outcome\"\n    },\n    \"secondary\": [\n      {\n        \"outcome\": \"Secondary outcome description\",\n        \"measurement\": \"How it will be measured\",\n        \"instrument\": \"Measurement tool/instrument\",\n        \"timepoints\": [\"List of measurement timepoints\"],\n        \"rationale\": \"Why this outcome is important\"\n      }\n    ],\n    \"process_measures\": [\n      {\n        \"measure\": \"Process measure description\",\n        \"purpose\": \"Why this process measure is tracked\",\n        \"collection_method\": \"How data will be collected\"\n      }\n    ],\n    \"balancing_measures\": [\n      {\n        \"measure\": \"Balancing measure description\",\n        \"purpose\": \"Potential unintended consequences to monitor\",\n        \"collection_method\": \"How data will be collected\"\n      }\n    ]\n  }\n}\n\nReturn ONLY the JSON object, no additional text."
+      },
+      "name": "Define Outcomes",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [2050, 300],
+      "id": "define-outcomes",
+      "credentials": {
+        "anthropicApi": {
+          "id": "1",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse Outcomes Node\n// Extract and merge outcomes\n\nconst data = $input.first().json;\nconst outcomesRaw = $input.item(0).json.output;\nconst outcomes = JSON.parse(outcomesRaw);\n\nreturn {\n  json: {\n    project: data.project,\n    methodology: {\n      ...data.methodology,\n      outcomes: outcomes.outcomes\n    }\n  }\n};"
+      },
+      "name": "Parse Outcomes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2250, 300],
+      "id": "parse-outcomes"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "prompt": "=You are an expert research methodologist designing study procedures and interventions.\n\nBased on the project information and methodology developed so far, design detailed procedures:\n\n**Project Context:**\n**Title:** {{ $json.project.intake.project_title }}\n**Clinical Problem:** {{ $json.project.intake.clinical_problem }}\n**Setting:** {{ $json.project.intake.setting }}\n\n**Methodology So Far:**\n{{ JSON.stringify($json.methodology, null, 2) }}\n\nDesign procedures including:\n1. Intervention details (if applicable)\n2. Control/comparison group procedures (if applicable)\n3. Step-by-step study procedures\n4. Quality assurance measures\n5. Blinding procedures (if applicable)\n6. Randomization procedures (if applicable)\n7. Fidelity monitoring\n\nProvide response in JSON format:\n{\n  \"procedures\": {\n    \"intervention\": {\n      \"applicable\": true|false,\n      \"description\": \"Detailed intervention description\",\n      \"components\": [\"List of intervention components\"],\n      \"delivery\": \"How intervention will be delivered\",\n      \"dosage\": \"Frequency, duration, intensity\",\n      \"training_required\": \"Training needed for intervention delivery\",\n      \"fidelity_monitoring\": \"How intervention fidelity will be monitored\"\n    },\n    \"control_comparison\": {\n      \"applicable\": true|false,\n      \"description\": \"Description of control/comparison condition\",\n      \"standard_care\": \"Description of standard care (if applicable)\"\n    },\n    \"study_procedures\": [\n      {\n        \"phase\": \"SCREENING|BASELINE|INTERVENTION|POST_INTERVENTION|FOLLOW_UP\",\n        \"step\": 0,\n        \"description\": \"Detailed description of this step\",\n        \"duration\": \"Estimated duration\",\n        \"personnel\": \"Who performs this step\",\n        \"materials\": [\"Materials/equipment needed\"]\n      }\n    ],\n    \"randomization\": {\n      \"applicable\": true|false,\n      \"method\": \"Randomization method\",\n      \"allocation_concealment\": \"How allocation will be concealed\",\n      \"stratification\": \"Stratification factors (if applicable)\"\n    },\n    \"blinding\": {\n      \"applicable\": true|false,\n      \"who_blinded\": [\"List: participants, investigators, outcome_assessors, data_analysts\"],\n      \"method\": \"How blinding will be maintained\"\n    },\n    \"quality_assurance\": [\n      {\n        \"measure\": \"Quality assurance measure\",\n        \"frequency\": \"How often it will be performed\",\n        \"responsibility\": \"Who is responsible\"\n      }\n    ]\n  }\n}\n\nReturn ONLY the JSON object, no additional text."
+      },
+      "name": "Design Procedures",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [2450, 300],
+      "id": "design-procedures",
+      "credentials": {
+        "anthropicApi": {
+          "id": "1",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse Procedures Node\n// Extract and merge procedures\n\nconst data = $input.first().json;\nconst proceduresRaw = $input.item(0).json.output;\nconst procedures = JSON.parse(proceduresRaw);\n\nreturn {\n  json: {\n    project: data.project,\n    methodology: {\n      ...data.methodology,\n      procedures: procedures.procedures\n    }\n  }\n};"
+      },
+      "name": "Parse Procedures",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2650, 300],
+      "id": "parse-procedures"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "prompt": "=You are an expert research methodologist planning data collection strategies.\n\nBased on the methodology developed, plan comprehensive data collection:\n\n**Methodology:**\n{{ JSON.stringify($json.methodology, null, 2) }}\n\n**Project Setting:**\n{{ $json.project.intake.setting }}\n\nPlan data collection including:\n1. Data sources (primary, secondary)\n2. Data collection methods\n3. Data collection instruments\n4. Data collection schedule\n5. Data quality assurance\n6. Data management procedures\n7. Privacy and confidentiality measures\n\nProvide response in JSON format:\n{\n  \"data_collection\": {\n    \"sources\": [\n      {\n        \"type\": \"PRIMARY|SECONDARY\",\n        \"source\": \"Data source description\",\n        \"variables\": [\"List of variables from this source\"],\n        \"access\": \"How data will be accessed\"\n      }\n    ],\n    \"methods\": [\n      {\n        \"method\": \"SURVEY|INTERVIEW|OBSERVATION|CHART_REVIEW|ELECTRONIC_HEALTH_RECORD|other\",\n        \"description\": \"Detailed method description\",\n        \"timepoints\": [\"When this method will be used\"],\n        \"duration\": \"Estimated time per participant\"\n      }\n    ],\n    \"instruments\": [\n      {\n        \"name\": \"Instrument name\",\n        \"type\": \"QUESTIONNAIRE|INTERVIEW_GUIDE|OBSERVATION_CHECKLIST|DATA_EXTRACTION_FORM|other\",\n        \"description\": \"What it measures\",\n        \"validation\": \"Validation status\",\n        \"pilot_testing\": \"Plan for pilot testing\"\n      }\n    ],\n    \"schedule\": {\n      \"baseline\": \"Baseline data collection plan\",\n      \"during_study\": [\"Ongoing data collection activities\"],\n      \"follow_up\": [\"Follow-up data collection timepoints\"]\n    },\n    \"quality_assurance\": [\n      {\n        \"activity\": \"Quality assurance activity\",\n        \"frequency\": \"How often\",\n        \"responsibility\": \"Who is responsible\"\n      }\n    ],\n    \"data_management\": {\n      \"storage\": \"How and where data will be stored\",\n      \"security\": \"Security measures\",\n      \"backup\": \"Backup procedures\",\n      \"retention\": \"Data retention plan\"\n    },\n    \"privacy_confidentiality\": {\n      \"deidentification\": \"How data will be deidentified\",\n      \"access_control\": \"Who has access to identified data\",\n      \"consent\": \"Consent procedures for data collection\"\n    }\n  }\n}\n\nReturn ONLY the JSON object, no additional text."
+      },
+      "name": "Plan Data Collection",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [2850, 300],
+      "id": "plan-data-collection",
+      "credentials": {
+        "anthropicApi": {
+          "id": "1",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse Data Collection Node\n// Extract and merge data collection plan\n\nconst data = $input.first().json;\nconst dataCollectionRaw = $input.item(0).json.output;\nconst dataCollection = JSON.parse(dataCollectionRaw);\n\nreturn {\n  json: {\n    project: data.project,\n    methodology: {\n      ...data.methodology,\n      data_collection: dataCollection.data_collection\n    }\n  }\n};"
+      },
+      "name": "Parse Data Collection",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3050, 300],
+      "id": "parse-data-collection"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "prompt": "=You are an expert biostatistician developing data analysis plans.\n\nBased on the complete methodology, develop a comprehensive analysis plan:\n\n**Methodology:**\n{{ JSON.stringify($json.methodology, null, 2) }}\n\n**Project Type:**\n{{ $json.project.classification.project_type }}\n\nDevelop analysis plan including:\n1. Statistical methods for primary outcome\n2. Statistical methods for secondary outcomes\n3. Handling of missing data\n4. Subgroup analyses (if applicable)\n5. Sensitivity analyses\n6. Software and tools\n7. Analysis timeline\n\nProvide response in JSON format:\n{\n  \"analysis_plan\": {\n    \"primary_analysis\": {\n      \"outcome\": \"Primary outcome being analyzed\",\n      \"method\": \"Statistical method\",\n      \"assumptions\": [\"List of statistical assumptions\"],\n      \"test_statistic\": \"Test statistic to be used\",\n      \"effect_measure\": \"Effect measure (RR, OR, mean difference, etc.)\",\n      \"confidence_interval\": \"Confidence level (typically 95%)\",\n      \"software\": \"Statistical software\"\n    },\n    \"secondary_analyses\": [\n      {\n        \"outcome\": \"Secondary outcome\",\n        \"method\": \"Statistical method\",\n        \"adjustment\": \"Adjustment for multiple comparisons (if applicable)\"\n      }\n    ],\n    \"descriptive_statistics\": {\n      \"categorical_variables\": \"How categorical data will be described\",\n      \"continuous_variables\": \"How continuous data will be described\",\n      \"baseline_comparisons\": \"How groups will be compared at baseline\"\n    },\n    \"missing_data\": {\n      \"assessment\": \"How missing data will be assessed\",\n      \"handling\": \"Methods for handling missing data\",\n      \"sensitivity\": \"Sensitivity analyses for missing data assumptions\"\n    },\n    \"subgroup_analyses\": {\n      \"planned\": true|false,\n      \"subgroups\": [\"List of planned subgroups\"],\n      \"rationale\": \"Rationale for subgroup analyses\"\n    },\n    \"sensitivity_analyses\": [\n      {\n        \"analysis\": \"Sensitivity analysis description\",\n        \"purpose\": \"Why this sensitivity analysis is important\"\n      }\n    ],\n    \"interim_analyses\": {\n      \"planned\": true|false,\n      \"timing\": \"When interim analyses will occur\",\n      \"stopping_rules\": \"Criteria for early stopping (if applicable)\"\n    },\n    \"software_tools\": [\n      {\n        \"tool\": \"Software name\",\n        \"version\": \"Version\",\n        \"purpose\": \"What it will be used for\"\n      }\n    ]\n  }\n}\n\nReturn ONLY the JSON object, no additional text."
+      },
+      "name": "Develop Analysis Plan",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [3250, 300],
+      "id": "develop-analysis-plan",
+      "credentials": {
+        "anthropicApi": {
+          "id": "1",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse Analysis Plan Node\n// Extract and merge analysis plan\n\nconst data = $input.first().json;\nconst analysisPlanRaw = $input.item(0).json.output;\nconst analysisPlan = JSON.parse(analysisPlanRaw);\n\nreturn {\n  json: {\n    project: data.project,\n    methodology: {\n      ...data.methodology,\n      analysis_plan: analysisPlan.analysis_plan\n    }\n  }\n};"
+      },
+      "name": "Parse Analysis Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3450, 300],
+      "id": "parse-analysis-plan"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "prompt": "=You are an expert project manager creating research timelines.\n\nBased on the complete methodology, generate a realistic project timeline:\n\n**Methodology:**\n{{ JSON.stringify($json.methodology, null, 2) }}\n\n**Project Context:**\n**Setting:** {{ $json.project.intake.setting }}\n**Target Population:** {{ $json.project.intake.target_population }}\n\nGenerate timeline including:\n1. All study phases\n2. Realistic duration for each phase\n3. Key milestones\n4. Dependencies between activities\n5. Resource requirements per phase\n6. Contingency buffers\n\nProvide response in JSON format:\n{\n  \"timeline\": {\n    \"total_duration_months\": 0,\n    \"phases\": [\n      {\n        \"phase\": \"PREPARATION|RECRUITMENT|BASELINE|INTERVENTION|DATA_COLLECTION|ANALYSIS|DISSEMINATION\",\n        \"start_month\": 0,\n        \"duration_months\": 0,\n        \"activities\": [\"List of activities in this phase\"],\n        \"milestones\": [\"Key milestones\"],\n        \"dependencies\": [\"What must be completed before this phase\"],\n        \"resources_required\": [\"Personnel, equipment, facilities needed\"],\n        \"risks\": [\"Potential delays or challenges\"]\n      }\n    ],\n    \"critical_path\": [\"List of activities on critical path\"],\n    \"contingency_plans\": [\n      {\n        \"risk\": \"Potential risk to timeline\",\n        \"mitigation\": \"How to mitigate or respond\"\n      }\n    ],\n    \"gantt_data\": [\n      {\n        \"task\": \"Task name\",\n        \"start\": \"Month 0\",\n        \"end\": \"Month X\",\n        \"dependencies\": [\"List of prerequisite tasks\"]\n      }\n    ]\n  }\n}\n\nReturn ONLY the JSON object, no additional text."
+      },
+      "name": "Generate Timeline",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [3650, 300],
+      "id": "generate-timeline",
+      "credentials": {
+        "anthropicApi": {
+          "id": "1",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse Timeline Node\n// Extract and merge timeline\n\nconst data = $input.first().json;\nconst timelineRaw = $input.item(0).json.output;\nconst timeline = JSON.parse(timelineRaw);\n\nreturn {\n  json: {\n    project: data.project,\n    methodology: {\n      ...data.methodology,\n      timeline: timeline.timeline\n    }\n  }\n};"
+      },
+      "name": "Parse Timeline",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3850, 300],
+      "id": "parse-timeline"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "prompt": "=You are an expert research writer generating methodology summaries and drafts.\n\nBased on the complete methodology, generate outputs for review:\n\n**Complete Methodology:**\n{{ JSON.stringify($json.methodology, null, 2) }}\n\n**Project Context:**\n{{ JSON.stringify($json.project.intake, null, 2) }}\n\nGenerate:\n1. Executive summary (300-500 words)\n2. Methods section draft (for protocol/manuscript)\n3. Strengths and limitations summary\n4. Recommendations for review\n\nProvide response in JSON format:\n{\n  \"outputs\": {\n    \"executive_summary\": \"Comprehensive summary of methodology (300-500 words)\",\n    \"methods_draft\": {\n      \"study_design\": \"Methods section: Study Design paragraph\",\n      \"setting_participants\": \"Methods section: Setting and Participants paragraph\",\n      \"intervention\": \"Methods section: Intervention paragraph (if applicable)\",\n      \"outcomes\": \"Methods section: Outcomes and Measures paragraph\",\n      \"data_collection\": \"Methods section: Data Collection paragraph\",\n      \"analysis\": \"Methods section: Statistical Analysis paragraph\",\n      \"ethics\": \"Methods section: Ethics and Governance paragraph placeholder\"\n    },\n    \"strengths_limitations\": {\n      \"strengths\": [\"List of methodology strengths\"],\n      \"limitations\": [\"List of methodology limitations\"],\n      \"mitigation_strategies\": [\"How limitations will be addressed\"]\n    },\n    \"review_recommendations\": [\n      {\n        \"area\": \"Area needing review\",\n        \"question\": \"Question for investigator\",\n        \"priority\": \"HIGH|MEDIUM|LOW\"\n      }\n    ],\n    \"next_steps\": [\"List of next steps after methodology approval\"]\n  }\n}\n\nReturn ONLY the JSON object, no additional text."
+      },
+      "name": "Generate Outputs",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [4050, 300],
+      "id": "generate-outputs",
+      "credentials": {
+        "anthropicApi": {
+          "id": "1",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Compile Methodology Results Node\n// Combine all methodology components into final structure\n\nconst data = $input.first().json;\nconst outputsRaw = $input.item(0).json.output;\nconst outputs = JSON.parse(outputsRaw);\n\n// Complete methodology structure\nconst completeMethodology = {\n  ...data.methodology,\n  outputs: outputs.outputs,\n  completed_at: new Date().toISOString()\n};\n\n// Update project record\nconst updatedProject = {\n  ...data.project,\n  methodology: completeMethodology,\n  status: 'METHODOLOGY_COMPLETE',\n  updated_at: new Date().toISOString()\n};\n\nreturn {\n  json: updatedProject\n};"
+      },
+      "name": "Compile Methodology Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4250, 300],
+      "id": "compile-methodology-results"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE projects\nSET \n  methodology = $1,\n  status = $2,\n  updated_at = $3\nWHERE id = $4\nRETURNING *;",
+        "additionalFields": {
+          "queryParameters": "={{ JSON.stringify([\n  JSON.stringify($json.methodology),\n  $json.status,\n  $json.updated_at,\n  $json.id\n]) }}"
+        }
+      },
+      "name": "Update Project Record",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [4450, 300],
+      "id": "update-project-record",
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO audit_log (project_id, timestamp, action, actor, details, previous_state, new_state)\nVALUES ($1, $2, $3, $4, $5, $6, $7);",
+        "additionalFields": {
+          "queryParameters": "={{ JSON.stringify([\n  $json.id,\n  new Date().toISOString(),\n  'METHODOLOGY_COMPLETED',\n  'system',\n  JSON.stringify({ \n    stage: 'methodology',\n    study_design: $json.methodology.study_design.type,\n    sample_size: $json.methodology.sample_size?.calculated_n,\n    duration_months: $json.methodology.timeline.total_duration_months\n  }),\n  JSON.stringify({ status: 'RESEARCH_COMPLETE' }),\n  JSON.stringify({ status: 'METHODOLOGY_COMPLETE' })\n]) }}"
+        }
+      },
+      "name": "Create Audit Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [4450, 450],
+      "id": "create-audit-log",
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "unit": "hours",
+        "amount": 168,
+        "resume": "webhook",
+        "options": {
+          "webhookSuffix": "={{ 'checkpoint-methodology-' + $json.id }}"
+        }
+      },
+      "name": "Wait for Review",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [4650, 300],
+      "id": "wait-for-review",
+      "webhookId": "methodology-checkpoint"
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "fromEmail": "={{ $env.SMTP_FROM }}",
+        "toEmail": "={{ $json.intake.principal_investigator.email }}",
+        "subject": "QI/Research Pipeline - Methodology Stage Complete - Review Required",
+        "emailFormat": "html",
+        "message": "=<html>\n<body>\n<h2>Methodology Stage Complete - Review Required</h2>\n<p>Dear {{ $json.intake.principal_investigator.name }},</p>\n\n<p>The methodology stage for your project has been completed. Please review the proposed methodology:</p>\n\n<h3>Project Details</h3>\n<ul>\n  <li><strong>Project ID:</strong> {{ $json.id }}</li>\n  <li><strong>Title:</strong> {{ $json.intake.project_title }}</li>\n</ul>\n\n<h3>Methodology Summary</h3>\n<ul>\n  <li><strong>Study Design:</strong> {{ $json.methodology.study_design.type }}</li>\n  <li><strong>Reporting Guideline:</strong> {{ $json.methodology.study_design.reporting_guideline }}</li>\n  <li><strong>Sample Size:</strong> {{ $json.methodology.sample_size ? $json.methodology.sample_size.recommended_n : 'Not applicable (qualitative design)' }}</li>\n  <li><strong>Project Duration:</strong> {{ $json.methodology.timeline.total_duration_months }} months</li>\n  <li><strong>Primary Outcome:</strong> {{ $json.methodology.outcomes.primary.outcome }}</li>\n</ul>\n\n<h3>Executive Summary</h3>\n<p>{{ $json.methodology.outputs.executive_summary.substring(0, 500) }}...</p>\n\n<h3>Review Recommendations</h3>\n<p>{{ $json.methodology.outputs.review_recommendations.length }} items require your review and decision:</p>\n<ul>\n{{ $json.methodology.outputs.review_recommendations.filter(r => r.priority === 'HIGH').map(r => '<li><strong>' + r.area + ':</strong> ' + r.question + '</li>').join('') }}\n</ul>\n\n<h3>Next Steps</h3>\n<p>Please review the complete methodology document and approve to proceed to ethics preparation:</p>\n\n<p><a href=\"{{ $env.WEBHOOK_URL }}/checkpoint-methodology-{{ $json.id }}?action=approve\">Approve Methodology</a></p>\n<p><a href=\"{{ $env.WEBHOOK_URL }}/checkpoint-methodology-{{ $json.id }}?action=reject\">Request Changes</a></p>\n\n<p>You can view the full methodology in the project dashboard, including the draft methods section for your protocol.</p>\n\n<p>Best regards,<br>\nQI/Research Pipeline Team</p>\n</body>\n</html>"
+      },
+      "name": "Send Review Notification",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [4650, 450],
+      "id": "send-review-notification",
+      "credentials": {
+        "smtp": {
+          "id": "1",
+          "name": "SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({\n  success: true,\n  project_id: $json.id,\n  status: $json.status,\n  methodology_summary: {\n    study_design: $json.methodology.study_design.type,\n    reporting_guideline: $json.methodology.study_design.reporting_guideline,\n    sample_size: $json.methodology.sample_size ? $json.methodology.sample_size.recommended_n : null,\n    duration_months: $json.methodology.timeline.total_duration_months,\n    primary_outcome: $json.methodology.outcomes.primary.outcome,\n    review_items: $json.methodology.outputs.review_recommendations.length\n  },\n  message: 'Methodology stage completed successfully - awaiting review'\n}) }}"
+      },
+      "name": "Return Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [4850, 300],
+      "id": "return-result"
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Determine Study Design",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determine Study Design": {
+      "main": [
+        [
+          {
+            "node": "Parse Study Design",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Study Design": {
+      "main": [
+        [
+          {
+            "node": "Define Participant Criteria",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Define Participant Criteria": {
+      "main": [
+        [
+          {
+            "node": "Parse Participant Criteria",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Participant Criteria": {
+      "main": [
+        [
+          {
+            "node": "Check if Sample Size Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check if Sample Size Needed": {
+      "main": [
+        [
+          {
+            "node": "Calculate Sample Size",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip Sample Size",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Sample Size": {
+      "main": [
+        [
+          {
+            "node": "Parse Sample Size",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Sample Size": {
+      "main": [
+        [
+          {
+            "node": "Merge Sample Size Branch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip Sample Size": {
+      "main": [
+        [
+          {
+            "node": "Merge Sample Size Branch",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Sample Size Branch": {
+      "main": [
+        [
+          {
+            "node": "Define Outcomes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Define Outcomes": {
+      "main": [
+        [
+          {
+            "node": "Parse Outcomes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Outcomes": {
+      "main": [
+        [
+          {
+            "node": "Design Procedures",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Design Procedures": {
+      "main": [
+        [
+          {
+            "node": "Parse Procedures",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Procedures": {
+      "main": [
+        [
+          {
+            "node": "Plan Data Collection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan Data Collection": {
+      "main": [
+        [
+          {
+            "node": "Parse Data Collection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Data Collection": {
+      "main": [
+        [
+          {
+            "node": "Develop Analysis Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Develop Analysis Plan": {
+      "main": [
+        [
+          {
+            "node": "Parse Analysis Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Analysis Plan": {
+      "main": [
+        [
+          {
+            "node": "Generate Timeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Timeline": {
+      "main": [
+        [
+          {
+            "node": "Parse Timeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Timeline": {
+      "main": [
+        [
+          {
+            "node": "Generate Outputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Outputs": {
+      "main": [
+        [
+          {
+            "node": "Compile Methodology Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compile Methodology Results": {
+      "main": [
+        [
+          {
+            "node": "Update Project Record",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Create Audit Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Project Record": {
+      "main": [
+        [
+          {
+            "node": "Wait for Review",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Review Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Review": {
+      "main": [
+        [
+          {
+            "node": "Return Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "Australia/Brisbane",
+    "executionOrder": "v1"
+  },
+  "staticData": null
+}

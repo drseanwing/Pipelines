@@ -1,0 +1,393 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://redi.health.qld.gov.au/foam/schemas/evidence-package.json",
+  "title": "EvidencePackage",
+  "description": "Schema for the compiled evidence package from research stage",
+  "type": "object",
+  "required": ["request_id", "sources", "synthesis", "generated_at"],
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Links to the original topic request"
+    },
+    "package_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for this evidence package"
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/EvidenceSource"
+      },
+      "description": "All evidence sources gathered during research"
+    },
+    "synthesis": {
+      "$ref": "#/definitions/EvidenceSynthesis",
+      "description": "Synthesised summary of all evidence"
+    },
+    "guidelines_referenced": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/GuidelineReference"
+      },
+      "description": "Clinical guidelines consulted"
+    },
+    "foamed_crossrefs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/FOAMedResource"
+      },
+      "description": "Related FOAM resources for cross-referencing"
+    },
+    "search_strategy": {
+      "type": "object",
+      "properties": {
+        "databases_searched": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "search_terms": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "date_range": {
+          "type": "string"
+        },
+        "filters_applied": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "total_results_screened": {
+          "type": "integer"
+        },
+        "sources_included": {
+          "type": "integer"
+        }
+      },
+      "description": "Documentation of the search methodology"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "generation_metadata": {
+      "type": "object",
+      "properties": {
+        "models_used": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "total_tokens_used": {
+          "type": "integer"
+        },
+        "processing_time_seconds": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "EvidenceSource": {
+      "type": "object",
+      "required": ["citation", "source_type", "relevance_score"],
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "description": "Internal reference ID for this source"
+        },
+        "citation": {
+          "type": "object",
+          "required": ["title"],
+          "properties": {
+            "authors": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Author list (First Author et al. format acceptable)"
+            },
+            "title": {
+              "type": "string"
+            },
+            "journal": {
+              "type": "string"
+            },
+            "year": {
+              "type": "integer"
+            },
+            "volume": {
+              "type": "string"
+            },
+            "issue": {
+              "type": "string"
+            },
+            "pages": {
+              "type": "string"
+            },
+            "doi": {
+              "type": "string"
+            },
+            "pmid": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string",
+              "format": "uri"
+            }
+          }
+        },
+        "source_type": {
+          "type": "string",
+          "enum": [
+            "rct",
+            "meta-analysis",
+            "systematic-review",
+            "cohort",
+            "case-control",
+            "case-series",
+            "case-report",
+            "guideline",
+            "expert-opinion",
+            "narrative-review",
+            "editorial",
+            "letter"
+          ],
+          "description": "Study design or source type"
+        },
+        "trial_acronym": {
+          "type": "string",
+          "description": "Known acronym if RCT (e.g., ARISE, TTM2)"
+        },
+        "key_findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "finding": {
+                "type": "string",
+                "description": "The key finding in plain language"
+              },
+              "outcome": {
+                "type": "string",
+                "description": "The outcome measured"
+              },
+              "intervention_result": {
+                "type": "string"
+              },
+              "control_result": {
+                "type": "string"
+              },
+              "effect_size": {
+                "type": "string",
+                "description": "e.g., RR 0.85, OR 1.2, HR 0.72"
+              },
+              "confidence_interval": {
+                "type": "string",
+                "description": "95% CI formatted as (0.71-0.99)"
+              },
+              "p_value": {
+                "type": "string"
+              },
+              "arr": {
+                "type": "string",
+                "description": "Absolute risk reduction"
+              },
+              "nnt": {
+                "type": "string",
+                "description": "Number needed to treat"
+              },
+              "nnh": {
+                "type": "string",
+                "description": "Number needed to harm"
+              }
+            }
+          }
+        },
+        "population": {
+          "type": "object",
+          "properties": {
+            "description": { "type": "string" },
+            "n": { "type": "integer" },
+            "inclusion_criteria": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "exclusion_criteria": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "intervention": {
+          "type": "string"
+        },
+        "comparator": {
+          "type": "string"
+        },
+        "limitations": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Key methodological limitations"
+        },
+        "strengths": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "relevance_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "AI-assessed relevance to the clinical question"
+        },
+        "evidence_quality": {
+          "type": "string",
+          "enum": ["high", "moderate", "low", "very-low"],
+          "description": "GRADE-style quality assessment"
+        },
+        "extraction_method": {
+          "type": "string",
+          "enum": ["full-text", "abstract-only", "secondary-source"],
+          "description": "How the data was extracted"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Additional context or caveats"
+        }
+      }
+    },
+    "EvidenceSynthesis": {
+      "type": "object",
+      "required": ["evidence_summary", "evidence_quality"],
+      "properties": {
+        "evidence_summary": {
+          "type": "string",
+          "description": "Narrative synthesis of all evidence"
+        },
+        "evidence_quality": {
+          "type": "string",
+          "enum": ["strong", "moderate", "weak", "very-weak", "conflicting"],
+          "description": "Overall quality of the evidence base"
+        },
+        "key_uncertainties": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Explicit acknowledgment of what we don't know"
+        },
+        "areas_of_agreement": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Where evidence consistently points"
+        },
+        "areas_of_disagreement": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Where evidence conflicts"
+        },
+        "practice_implications": {
+          "type": "string",
+          "description": "What this means for clinical practice"
+        },
+        "regional_variations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "region": { "type": "string" },
+              "variation": { "type": "string" },
+              "guideline_source": { "type": "string" }
+            }
+          },
+          "description": "Known regional practice differences"
+        },
+        "evolving_evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "topic": { "type": "string" },
+              "pending_trials": { "type": "string" },
+              "expected_completion": { "type": "string" }
+            }
+          },
+          "description": "Ongoing trials or evolving areas"
+        }
+      }
+    },
+    "GuidelineReference": {
+      "type": "object",
+      "required": ["society", "guideline_title"],
+      "properties": {
+        "society": {
+          "type": "string",
+          "description": "Issuing society (e.g., ARC, ILCOR, NICE)"
+        },
+        "guideline_title": {
+          "type": "string"
+        },
+        "year": {
+          "type": "integer"
+        },
+        "version": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "key_recommendations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "recommendation": { "type": "string" },
+              "class": {
+                "type": "string",
+                "description": "e.g., Class I, IIa, IIb, III"
+              },
+              "level_of_evidence": {
+                "type": "string",
+                "description": "e.g., A, B-R, B-NR, C-LD, C-EO"
+              }
+            }
+          }
+        },
+        "regional_applicability": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "FOAMedResource": {
+      "type": "object",
+      "required": ["resource", "title", "url"],
+      "properties": {
+        "resource": {
+          "type": "string",
+          "description": "The FOAM resource name (e.g., LITFL, EM Cases)"
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "author": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string"
+        },
+        "relevance_note": {
+          "type": "string",
+          "description": "Why this resource is relevant"
+        },
+        "content_type": {
+          "type": "string",
+          "enum": ["blog-post", "podcast", "video", "infographic", "calculator"]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,526 @@
+{
+  "name": "FOAM Content Orchestrator",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "foam/request",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "foam-request-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Schema Validator for FOAM Topic Request\n// Validates incoming request against topic-request.schema.json\n\nconst input = $input.first().json;\n\n// Required fields check\nconst requiredFields = ['format', 'topic', 'requestor'];\nconst missingFields = requiredFields.filter(field => !input[field]);\n\nif (missingFields.length > 0) {\n  throw new Error(`Missing required fields: ${missingFields.join(', ')}`);\n}\n\n// Format validation\nconst validFormats = ['case-based', 'journal-club', 'clinical-review'];\nif (!validFormats.includes(input.format)) {\n  throw new Error(`Invalid format: ${input.format}. Must be one of: ${validFormats.join(', ')}`);\n}\n\n// Topic validation\nif (!input.topic.title || !input.topic.clinical_question) {\n  throw new Error('Topic must include title and clinical_question');\n}\n\n// Requestor validation\nif (!input.requestor.name || !input.requestor.email) {\n  throw new Error('Requestor must include name and email');\n}\n\n// Generate request_id if not provided\nconst request_id = input.request_id || crypto.randomUUID();\n\n// Add metadata\nconst validatedRequest = {\n  ...input,\n  request_id,\n  created_at: new Date().toISOString(),\n  status: 'received',\n  _validated: true,\n  _validation_timestamp: new Date().toISOString()\n};\n\nreturn { json: validatedRequest };"
+      },
+      "id": "validate-request",
+      "name": "Validate Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "foam",
+        "table": "topic_requests",
+        "columns": "request_id, format, topic, requestor, target_audience, urgency, regional_context, status, metadata",
+        "options": {}
+      },
+      "id": "store-request",
+      "name": "Store Request",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [680, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credential",
+          "name": "PostgreSQL FOAM"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.format }}",
+                    "rightValue": "case-based",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Case-Based"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.format }}",
+                    "rightValue": "journal-club",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Journal-Club"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.format }}",
+                    "rightValue": "clinical-review",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Clinical-Review"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "route-by-format",
+      "name": "Route by Format",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.CASE_BASED_WORKFLOW_ID }}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "execute-case-based",
+      "name": "Execute Case-Based Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1140, 160]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.JOURNAL_CLUB_WORKFLOW_ID }}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "execute-journal-club",
+      "name": "Execute Journal Club Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1140, 300]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.CLINICAL_REVIEW_WORKFLOW_ID }}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "execute-clinical-review",
+      "name": "Execute Clinical Review Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1140, 440]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge results from any of the workflow branches\nconst items = $input.all();\n\nif (items.length === 0) {\n  throw new Error('No workflow output received');\n}\n\nconst result = items[0].json;\n\n// Add completion metadata\nconst finalResult = {\n  ...result,\n  _orchestrator_completed: true,\n  _completion_timestamp: new Date().toISOString()\n};\n\nreturn { json: finalResult };"
+      },
+      "id": "merge-results",
+      "name": "Merge Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1380, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "foam",
+        "table": "drafts",
+        "columns": "request_id, format, content, placeholders, validation_items, quality_checks, metadata",
+        "options": {}
+      },
+      "id": "store-result",
+      "name": "Store Result",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1600, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credential",
+          "name": "PostgreSQL FOAM"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": "foam",
+        "table": "topic_requests",
+        "columns": "status",
+        "options": {}
+      },
+      "id": "update-status",
+      "name": "Update Request Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1820, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credential",
+          "name": "PostgreSQL FOAM"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "channel": "#foam-content",
+        "text": "={{ 'New ' + $json.format + ' draft ready for review: ' + $json.topic.title }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": true
+        }
+      },
+      "id": "notify-slack",
+      "name": "Notify Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [2040, 300],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-credential",
+          "name": "Slack FOAM"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, request_id: $json.request_id, status: 'completed', draft_id: $json.draft_id }) }}",
+        "options": {}
+      },
+      "id": "respond-success",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2260, 300]
+    },
+    {
+      "parameters": {
+        "errorMessage": "={{ $json.error }}"
+      },
+      "id": "error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 520]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Error Handler\nconst error = $input.first().json;\n\nconst errorLog = {\n  error_type: error.name || 'UnknownError',\n  error_message: error.message || 'An unknown error occurred',\n  workflow_name: 'foam-content-orchestrator',\n  node_name: error.node || 'unknown',\n  occurred_at: new Date().toISOString(),\n  input_data: error.input || null,\n  stack_trace: error.stack || null\n};\n\nreturn { json: errorLog };"
+      },
+      "id": "format-error",
+      "name": "Format Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 520]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "foam",
+        "table": "error_log",
+        "columns": "error_type, error_message, workflow_name, node_name, occurred_at, input_data, stack_trace",
+        "options": {}
+      },
+      "id": "log-error",
+      "name": "Log Error to DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [680, 520],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credential",
+          "name": "PostgreSQL FOAM"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "channel": "#foam-errors",
+        "text": "={{ 'FOAM Workflow Error: ' + $json.error_message }}",
+        "otherOptions": {}
+      },
+      "id": "notify-error-slack",
+      "name": "Notify Error Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [900, 520],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-credential",
+          "name": "Slack FOAM"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: $json.error_message }) }}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "respond-error",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1120, 520]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Request": {
+      "main": [
+        [
+          {
+            "node": "Store Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Request": {
+      "main": [
+        [
+          {
+            "node": "Route by Format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Format": {
+      "main": [
+        [
+          {
+            "node": "Execute Case-Based Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute Journal Club Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute Clinical Review Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Case-Based Workflow": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Journal Club Workflow": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Clinical Review Workflow": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Results": {
+      "main": [
+        [
+          {
+            "node": "Store Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Result": {
+      "main": [
+        [
+          {
+            "node": "Update Request Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Request Status": {
+      "main": [
+        [
+          {
+            "node": "Notify Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Slack": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Format Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Error": {
+      "main": [
+        [
+          {
+            "node": "Log Error to DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error to DB": {
+      "main": [
+        [
+          {
+            "node": "Notify Error Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Error Slack": {
+      "main": [
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "={{ $vars.ERROR_HANDLER_WORKFLOW_ID }}"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "FOAM",
+      "id": "foam-tag"
+    },
+    {
+      "name": "Orchestrator",
+      "id": "orchestrator-tag"
+    }
+  ],
+  "triggerCount": 1,
+  "versionId": "1.0.0",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "foam-n8n-instance"
+  }
+}

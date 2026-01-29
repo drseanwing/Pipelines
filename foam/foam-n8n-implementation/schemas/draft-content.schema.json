@@ -1,0 +1,373 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://redi.health.qld.gov.au/foam/schemas/draft-content.json",
+  "title": "DraftContent",
+  "description": "Schema for AI-generated draft content awaiting human review",
+  "type": "object",
+  "required": ["request_id", "format", "content", "metadata"],
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Links to the original topic request"
+    },
+    "draft_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for this draft version"
+    },
+    "evidence_package_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Links to the evidence package used"
+    },
+    "format": {
+      "type": "string",
+      "enum": ["case-based", "journal-club", "clinical-review"],
+      "description": "Content format type"
+    },
+    "version": {
+      "type": "integer",
+      "default": 1,
+      "description": "Draft version number (increments with revisions)"
+    },
+    "content": {
+      "type": "object",
+      "required": ["title", "body_markdown"],
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Content title"
+        },
+        "subtitle": {
+          "type": "string",
+          "description": "Actionable subtitle"
+        },
+        "body_markdown": {
+          "type": "string",
+          "description": "Full content in Markdown format"
+        },
+        "word_count": {
+          "type": "integer",
+          "description": "Total word count"
+        },
+        "reading_time_minutes": {
+          "type": "integer",
+          "description": "Estimated reading time"
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "heading": { "type": "string" },
+              "level": { "type": "integer" },
+              "word_count": { "type": "integer" },
+              "has_table": { "type": "boolean" },
+              "has_clinical_pearl": { "type": "boolean" }
+            }
+          },
+          "description": "Section breakdown for navigation"
+        },
+        "key_points": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Key points summary (for top of article)"
+        },
+        "bottom_line": {
+          "type": "string",
+          "description": "The bottom line summary"
+        },
+        "tables": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "table_id": { "type": "string" },
+              "caption": { "type": "string" },
+              "markdown": { "type": "string" }
+            }
+          },
+          "description": "Extracted tables for verification"
+        }
+      }
+    },
+    "placeholders": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Placeholder"
+      },
+      "description": "Items requiring human expert input"
+    },
+    "validation_items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ValidationItem"
+      },
+      "description": "Items requiring verification before publication"
+    },
+    "citations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Citation"
+      },
+      "description": "All citations used in the draft"
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["generated_by", "generation_timestamp"],
+      "properties": {
+        "generated_by": {
+          "type": "string",
+          "description": "Workflow that generated this draft"
+        },
+        "generation_timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "template_version": {
+          "type": "string",
+          "description": "Version of the template used"
+        },
+        "llm_models_used": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Models used in generation"
+        },
+        "total_tokens_used": {
+          "type": "integer"
+        },
+        "processing_time_seconds": {
+          "type": "number"
+        },
+        "style_guide_version": {
+          "type": "string"
+        }
+      }
+    },
+    "quality_checks": {
+      "type": "object",
+      "properties": {
+        "all_claims_cited": {
+          "type": "boolean",
+          "description": "All factual claims have citations"
+        },
+        "uncertainty_acknowledged": {
+          "type": "boolean",
+          "description": "Uncertainty explicitly stated where appropriate"
+        },
+        "bottom_line_present": {
+          "type": "boolean",
+          "description": "Bottom line summary included"
+        },
+        "foamed_crossrefs_included": {
+          "type": "boolean",
+          "description": "Cross-references to other FOAM resources"
+        },
+        "style_guide_compliant": {
+          "type": "boolean",
+          "description": "Follows FOAM style guide"
+        },
+        "word_count_in_range": {
+          "type": "boolean",
+          "description": "Word count within target range for format"
+        },
+        "placeholders_marked": {
+          "type": "boolean",
+          "description": "All human input placeholders present"
+        },
+        "expert_register_maintained": {
+          "type": "boolean",
+          "description": "Expert-to-colleague tone maintained"
+        },
+        "check_timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "checker_model": {
+          "type": "string"
+        }
+      },
+      "description": "Automated quality check results"
+    },
+    "attribution": {
+      "type": "object",
+      "properties": {
+        "author_space": {
+          "type": "string",
+          "description": "Space for author name"
+        },
+        "editor_space": {
+          "type": "string",
+          "description": "Space for editor name"
+        },
+        "peer_reviewer_space": {
+          "type": "string",
+          "description": "Space for peer reviewer attribution"
+        },
+        "ai_disclosure": {
+          "type": "string",
+          "default": "AI-assisted draft generated using Claude. All clinical content verified by human expert.",
+          "description": "AI involvement disclosure"
+        }
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "generated",
+        "quality-checked",
+        "pending-review",
+        "in-review",
+        "revisions-requested",
+        "approved",
+        "published"
+      ],
+      "default": "generated"
+    }
+  },
+  "definitions": {
+    "Placeholder": {
+      "type": "object",
+      "required": ["placeholder_id", "type", "context"],
+      "properties": {
+        "placeholder_id": {
+          "type": "string",
+          "description": "Unique ID for this placeholder"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "clinical-pearl",
+            "expert-input",
+            "regional-variation",
+            "verify",
+            "peer-review-comment"
+          ]
+        },
+        "marker_in_document": {
+          "type": "string",
+          "description": "The exact placeholder text in the document (e.g., [CLINICAL PEARL NEEDED: topic])"
+        },
+        "context": {
+          "type": "string",
+          "description": "Context around this placeholder"
+        },
+        "prompt_for_expert": {
+          "type": "string",
+          "description": "The question or prompt for the expert reviewer"
+        },
+        "section": {
+          "type": "string",
+          "description": "Which section of the document"
+        },
+        "resolved": {
+          "type": "boolean",
+          "default": false
+        },
+        "resolution": {
+          "type": "string",
+          "description": "The expert's input"
+        },
+        "resolved_by": {
+          "type": "string"
+        },
+        "resolved_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "ValidationItem": {
+      "type": "object",
+      "required": ["item_id", "item_type", "content"],
+      "properties": {
+        "item_id": {
+          "type": "string"
+        },
+        "item_type": {
+          "type": "string",
+          "enum": [
+            "drug-dose",
+            "drug-route",
+            "drug-contraindication",
+            "clinical-threshold",
+            "diagnostic-criteria",
+            "guideline-recommendation",
+            "statistical-claim",
+            "factual-claim"
+          ]
+        },
+        "content": {
+          "type": "string",
+          "description": "The specific content requiring verification"
+        },
+        "source_cited": {
+          "type": "string",
+          "description": "The source cited for this item"
+        },
+        "extraction_confidence": {
+          "type": "string",
+          "enum": ["high", "medium", "low"],
+          "description": "AI confidence in extraction accuracy"
+        },
+        "requires_verification": {
+          "type": "boolean",
+          "default": true
+        },
+        "verification_notes": {
+          "type": "string",
+          "description": "Notes for the verifier"
+        },
+        "verified": {
+          "type": "boolean",
+          "default": false
+        },
+        "verified_by": {
+          "type": "string"
+        },
+        "verified_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "correction": {
+          "type": "string",
+          "description": "Correction if original was incorrect"
+        }
+      }
+    },
+    "Citation": {
+      "type": "object",
+      "required": ["citation_id", "formatted_citation"],
+      "properties": {
+        "citation_id": {
+          "type": "string",
+          "description": "Internal reference number used in text"
+        },
+        "formatted_citation": {
+          "type": "string",
+          "description": "Full formatted citation"
+        },
+        "pmid": {
+          "type": "string"
+        },
+        "doi": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "accessed_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "in_text_locations": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Where this citation appears in the text"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,370 @@
+{
+  "name": "FOAM Validation System",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "notes": "Receives draft content from parent workflow. Expects: { draft_id, draft_content, format, validation_items? }"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Initialize Validation\n// Extract draft content, format, and validation items from input\n\nconst input = $input.first().json;\n\nconst validationContext = {\n  validation_id: `val-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,\n  draft_id: input.draft_id || `draft-${Date.now()}`,\n  draft_content: input.draft_content || input.content || '',\n  format: input.format || 'clinical-review',\n  validation_items: input.validation_items || [],\n  topic: input.topic || {},\n  _stage: 'validation_initialized',\n  _started_at: new Date().toISOString()\n};\n\n// Extract metadata if present\nif (input.metadata) {\n  validationContext.draft_title = input.metadata.title || '';\n  validationContext.target_audience = input.metadata.target_audience || 'EM physicians';\n  validationContext.regional_context = input.metadata.regional_context || 'International';\n}\n\nreturn { json: validationContext };"
+      },
+      "id": "init-validation",
+      "name": "Initialize Validation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'You are a medical dose extraction specialist. Your task is to systematically extract all drug doses, clinical thresholds, and quantitative values from medical content that require expert verification before publication.\\n\\n## Content to Analyze:\\n' + $json.draft_content + '\\n\\n## Categories to Extract:\\n\\n### 1. Drug Doses\\nFor each medication mentioned, extract:\\n- Drug name (generic and brand names)\\n- Dose (exact numerical value with units)\\n- Route (IV, PO, IM, SC, etc.)\\n- Frequency and duration if specified\\n- Indication and clinical context\\n- Special populations (paediatric, geriatric, renal/hepatic adjustments)\\n\\n### 2. Clinical Thresholds\\n- Parameter being measured (BP, HR, SpO2, etc.)\\n- Threshold value with units\\n- Direction (>, <, range)\\n- Action required when threshold is met\\n\\n### 3. Laboratory Values\\n- Test name, normal range, critical threshold\\n- Clinical significance and timing for recheck\\n\\n### 4. Timeframes\\n- Critical intervention windows\\n- Time-sensitive actions\\n\\n### 5. Contraindications\\n- Absolute vs relative\\n- Drug or condition contraindicated\\n\\n## Verification Priority Assignment:\\n- HIGH: Life-threatening if incorrect (vasoactive drugs, insulin, anticoagulation, resuscitation thresholds)\\n- MEDIUM: Clinically important but not immediately life-threatening\\n- LOW: Contextual or educational\\n\\n## Output Format:\\nReturn a valid JSON object with this structure:\\n{\\n  \"extraction_summary\": {\\n    \"total_items\": 0,\\n    \"high_priority\": 0,\\n    \"medium_priority\": 0,\\n    \"low_priority\": 0,\\n    \"uncited_items\": 0\\n  },\\n  \"drug_doses\": [...],\\n  \"clinical_thresholds\": [...],\\n  \"lab_values\": [...],\\n  \"timeframes\": [...],\\n  \"contraindications\": [...]\\n}\\n\\nExtract all numerical clinical values systematically. Be thorough - patient safety depends on accurate extraction.' }}",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "extract-doses",
+      "name": "Extract Doses",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "baseUrl": "http://host.docker.internal:11434",
+        "model": "llama3.2:latest",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "ollama-llama-doses",
+      "name": "Ollama Llama 3.2 (Doses)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [680, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Doses - Extract JSON from LLM response\nconst input = $input.first().json;\nconst output = input.output || input.text || '{}';\n\nlet doseExtraction;\ntry {\n  // Try to extract JSON from response\n  const jsonMatch = output.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    doseExtraction = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found in response');\n  }\n} catch (e) {\n  // Fallback structure if parsing fails\n  doseExtraction = {\n    extraction_summary: {\n      total_items: 0,\n      high_priority: 0,\n      medium_priority: 0,\n      low_priority: 0,\n      uncited_items: 0,\n      parse_error: e.message\n    },\n    drug_doses: [],\n    clinical_thresholds: [],\n    lab_values: [],\n    timeframes: [],\n    contraindications: [],\n    _raw_output: output.substring(0, 1000)\n  };\n}\n\n// Carry forward context\nconst result = {\n  ...input,\n  dose_extraction: doseExtraction,\n  _stage: 'doses_extracted',\n  _doses_parsed_at: new Date().toISOString()\n};\n\n// Remove the LLM output field to keep payload clean\ndelete result.output;\ndelete result.text;\n\nreturn { json: result };"
+      },
+      "id": "parse-doses",
+      "name": "Parse Doses",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'You are a medical evidence verification specialist. Your task is to verify that factual claims in medical content accurately represent their cited sources.\\n\\n## Draft Content to Verify:\\n' + $json.draft_content + '\\n\\n## Dose Extraction Results (for context):\\n' + JSON.stringify($json.dose_extraction?.extraction_summary || {}) + '\\n\\n## Verification Task:\\n\\n### Claim Categories to Verify:\\n\\n1. **Statistical Claims**\\n   - Effect sizes (RR, OR, HR), confidence intervals, p-values\\n   - NNT/NNH, absolute risk reduction\\n   - Verify numbers match source exactly\\n\\n2. **Outcome Claims**\\n   - Mortality rates, morbidity outcomes\\n   - Verify time frame (28-day vs in-hospital vs 1-year)\\n   - Check if ITT vs per-protocol analysis\\n\\n3. **Guideline Claims**\\n   - Verify guideline organization and year\\n   - Check recommendation strength (Class I/II/III)\\n   - Ensure not taken out of context\\n\\n4. **Mechanism Claims**\\n   - Pathophysiology statements supported by cited source\\n   - Distinguish animal vs human data\\n\\n### Assessment Categories:\\n- ACCURATE: Claim precisely reflects source\\n- PARTIALLY_ACCURATE: Directionally correct but lacks precision\\n- INACCURATE: Contradicts source or substantially different\\n- UNVERIFIABLE: Source not available or citation appears incorrect\\n\\n### Output Format:\\nReturn a valid JSON object:\\n{\\n  \"verification_summary\": {\\n    \"total_claims\": 0,\\n    \"accurate\": 0,\\n    \"partially_accurate\": 0,\\n    \"inaccurate\": 0,\\n    \"unverifiable\": 0\\n  },\\n  \"verified_claims\": [...],\\n  \"flagged_claims\": [...],\\n  \"uncited_claims\": [...],\\n  \"outdated_claims\": [...],\\n  \"recommendations\": [...]\\n}\\n\\nBe thorough in identifying claims. Flag any claim without proper citation. Note outdated evidence (>10 years old for treatment recommendations).' }}",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "verify-claims",
+      "name": "Verify Claims",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "baseUrl": "http://host.docker.internal:11434",
+        "model": "mistral:latest",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "ollama-mistral-claims",
+      "name": "Ollama Mistral (Claims)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [1120, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Claims - Extract JSON from verification output\nconst input = $input.first().json;\nconst output = input.output || input.text || '{}';\n\nlet claimVerification;\ntry {\n  const jsonMatch = output.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    claimVerification = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found in response');\n  }\n} catch (e) {\n  claimVerification = {\n    verification_summary: {\n      total_claims: 0,\n      accurate: 0,\n      partially_accurate: 0,\n      inaccurate: 0,\n      unverifiable: 0,\n      parse_error: e.message\n    },\n    verified_claims: [],\n    flagged_claims: [],\n    uncited_claims: [],\n    outdated_claims: [],\n    recommendations: [],\n    _raw_output: output.substring(0, 1000)\n  };\n}\n\nconst result = {\n  ...input,\n  claim_verification: claimVerification,\n  _stage: 'claims_verified',\n  _claims_parsed_at: new Date().toISOString()\n};\n\ndelete result.output;\ndelete result.text;\n\nreturn { json: result };"
+      },
+      "id": "parse-claims",
+      "name": "Parse Claims",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'You are a clinical guideline expert. Your task is to identify potential conflicts between draft clinical content and established clinical practice guidelines.\\n\\n## Draft Content:\\n' + $json.draft_content + '\\n\\n## Already Extracted Doses:\\n' + JSON.stringify($json.dose_extraction?.extraction_summary || {}) + '\\n\\n## Guidelines to Reference:\\n\\n### Resuscitation & Emergency Care\\n- ILCOR (International Liaison Committee on Resuscitation)\\n- ARC (Australian Resuscitation Council)\\n- ERC (European Resuscitation Council)\\n- AHA/ACLS guidelines\\n\\n### Critical Care & Sepsis\\n- Surviving Sepsis Campaign 2021\\n- SCCM, ESICM guidelines\\n\\n### Cardiology\\n- AHA/ACC, ESC, CSANZ guidelines\\n\\n## Conflict Types to Identify:\\n\\n1. **DIRECT_CONFLICT**: Draft recommendation contradicts guideline\\n2. **OMISSION**: Missing key guideline-recommended intervention\\n3. **OUTDATED**: Draft cites superseded guidelines\\n4. **REGIONAL_VARIATION**: Acceptable local practice difference\\n5. **STRENGTH_MISMATCH**: Draft presents weak evidence as strong recommendation\\n\\n## Clinical Significance Rating:\\n- HIGH: Patient safety, core intervention, major decision\\n- MEDIUM: Timing, preference, adjunctive therapy\\n- LOW: Minor detail, wording difference\\n\\n## Output Format:\\nReturn a valid JSON object:\\n{\\n  \"conflict_summary\": {\\n    \"total_recommendations_checked\": 0,\\n    \"direct_conflicts\": 0,\\n    \"potential_conflicts\": 0,\\n    \"outdated_references\": 0,\\n    \"regional_variations\": 0,\\n    \"omissions\": 0,\\n    \"strength_mismatches\": 0\\n  },\\n  \"conflicts\": [\\n    {\\n      \"conflict_id\": \"conf-001\",\\n      \"conflict_type\": \"DIRECT_CONFLICT|OMISSION|OUTDATED|REGIONAL_VARIATION|STRENGTH_MISMATCH\",\\n      \"clinical_significance\": \"HIGH|MEDIUM|LOW\",\\n      \"draft_statement\": \"\",\\n      \"draft_location\": \"\",\\n      \"guideline_source\": \"\",\\n      \"guideline_recommendation\": \"\",\\n      \"conflict_explanation\": \"\",\\n      \"recommended_action\": \"\"\\n    }\\n  ],\\n  \"regional_variations\": [...],\\n  \"omissions\": [...],\\n  \"guideline_alignment_score\": 0,\\n  \"priority_actions\": [...]\\n}\\n\\nBe systematic - check every clinical recommendation against current guidelines. Use latest guideline versions.' }}",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "check-guidelines",
+      "name": "Check Guidelines",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "temperature": 0.3,
+          "maxTokensToSample": 4096
+        }
+      },
+      "id": "claude-sonnet-guidelines",
+      "name": "Claude Sonnet (Guidelines)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [1560, 500],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credential",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Guidelines - Extract conflict detection results\nconst input = $input.first().json;\nconst output = input.output || input.text || '{}';\n\nlet guidelineConflicts;\ntry {\n  const jsonMatch = output.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    guidelineConflicts = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found in response');\n  }\n} catch (e) {\n  guidelineConflicts = {\n    conflict_summary: {\n      total_recommendations_checked: 0,\n      direct_conflicts: 0,\n      potential_conflicts: 0,\n      outdated_references: 0,\n      regional_variations: 0,\n      omissions: 0,\n      strength_mismatches: 0,\n      parse_error: e.message\n    },\n    conflicts: [],\n    regional_variations: [],\n    omissions: [],\n    guideline_alignment_score: 0,\n    priority_actions: [],\n    _raw_output: output.substring(0, 1000)\n  };\n}\n\nconst result = {\n  ...input,\n  guideline_conflicts: guidelineConflicts,\n  _stage: 'guidelines_checked',\n  _guidelines_parsed_at: new Date().toISOString()\n};\n\ndelete result.output;\ndelete result.text;\n\nreturn { json: result };"
+      },
+      "id": "parse-guidelines",
+      "name": "Parse Guidelines",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'You are generating a comprehensive reviewer checklist for expert clinical reviewers to validate draft FOAM content.\\n\\n## Draft Content:\\n' + $json.draft_content.substring(0, 3000) + '...\\n\\n## Validation Findings to Incorporate:\\n\\n### Dose Extraction Summary:\\n' + JSON.stringify($json.dose_extraction?.extraction_summary || {}) + '\\n\\n### Claim Verification Summary:\\n' + JSON.stringify($json.claim_verification?.verification_summary || {}) + '\\n\\n### Guideline Conflict Summary:\\n' + JSON.stringify($json.guideline_conflicts?.conflict_summary || {}) + '\\n\\n## Generate a Reviewer Checklist with these sections:\\n\\n### A. Clinical Accuracy (doses_to_verify, thresholds_to_confirm, claims_to_verify, guideline_alignment)\\n- Extract from dose_extraction results\\n- Include priority (HIGH/MEDIUM/LOW)\\n- Add verification fields\\n\\n### B. Clinical Pearls Needed\\n- Identify knowledge gaps requiring expert input\\n- Include: pearl_id, topic, section, expert_prompt, priority, pearl_type\\n- Pearl types: Clinical reasoning, Practical technique, Common pitfall, Mnemonics\\n\\n### C. Regional Considerations\\n- Drug availability issues\\n- Local practice variations\\n\\n### D. Special Populations\\n- Paediatric, Pregnancy, Elderly, Renal/Hepatic considerations\\n\\n### E. Content Completeness\\n- Missing sections, sections needing expansion\\n\\n## Output Format:\\nReturn valid JSON:\\n{\\n  \"checklist_metadata\": {\\n    \"checklist_id\": \"uuid\",\\n    \"draft_id\": \"' + $json.draft_id + '\",\\n    \"estimated_review_time\": \"X minutes\",\\n    \"priority_level\": \"HIGH|MEDIUM|LOW\"\\n  },\\n  \"clinical_accuracy\": {\\n    \"doses_to_verify\": [...],\\n    \"thresholds_to_confirm\": [...],\\n    \"claims_to_verify\": [...],\\n    \"guideline_alignment\": [...]\\n  },\\n  \"clinical_pearls_needed\": [...],\\n  \"regional_considerations\": [...],\\n  \"special_populations\": [...],\\n  \"content_completeness\": {\\n    \"missing_sections\": [...],\\n    \"sections_needing_expansion\": [...]\\n  },\\n  \"reviewer_instructions\": {\\n    \"steps\": [...],\\n    \"navigation_tips\": [...]\\n  }\\n}\\n\\nCalculate estimated_review_time: Base 10min + 2min per HIGH priority item + 1min per MEDIUM item.' }}",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "generate-checklist",
+      "name": "Generate Checklist",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [2000, 300]
+    },
+    {
+      "parameters": {
+        "baseUrl": "http://host.docker.internal:11434",
+        "model": "llama3.2:latest",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "ollama-llama-checklist",
+      "name": "Ollama Llama 3.2 (Checklist)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [2000, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Checklist - Extract reviewer checklist output\nconst input = $input.first().json;\nconst output = input.output || input.text || '{}';\n\nlet reviewerChecklist;\ntry {\n  const jsonMatch = output.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    reviewerChecklist = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found in response');\n  }\n} catch (e) {\n  reviewerChecklist = {\n    checklist_metadata: {\n      checklist_id: `chk-${Date.now()}`,\n      draft_id: input.draft_id,\n      estimated_review_time: 'Unknown',\n      priority_level: 'MEDIUM',\n      parse_error: e.message\n    },\n    clinical_accuracy: {\n      doses_to_verify: [],\n      thresholds_to_confirm: [],\n      claims_to_verify: [],\n      guideline_alignment: []\n    },\n    clinical_pearls_needed: [],\n    regional_considerations: [],\n    special_populations: [],\n    content_completeness: {\n      missing_sections: [],\n      sections_needing_expansion: []\n    },\n    _raw_output: output.substring(0, 1000)\n  };\n}\n\nconst result = {\n  ...input,\n  reviewer_checklist: reviewerChecklist,\n  _stage: 'checklist_generated',\n  _checklist_parsed_at: new Date().toISOString()\n};\n\ndelete result.output;\ndelete result.text;\n\nreturn { json: result };"
+      },
+      "id": "parse-checklist",
+      "name": "Parse Checklist",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Assemble Validation Report\n// Combine all validation results into final report\n\nconst input = $input.first().json;\n\n// Calculate overall validation status\nfunction calculateValidationStatus(doseExtraction, claimVerification, guidelineConflicts) {\n  let status = 'PASS';\n  let issues = [];\n\n  // Check dose extraction\n  const dosesSummary = doseExtraction?.extraction_summary || {};\n  if (dosesSummary.high_priority > 0) {\n    issues.push(`${dosesSummary.high_priority} high-priority doses require verification`);\n  }\n  if (dosesSummary.uncited_items > 0) {\n    issues.push(`${dosesSummary.uncited_items} items without citations`);\n  }\n\n  // Check claim verification\n  const claimsSummary = claimVerification?.verification_summary || {};\n  if (claimsSummary.inaccurate > 0) {\n    status = 'FAIL';\n    issues.push(`${claimsSummary.inaccurate} inaccurate claims detected`);\n  }\n  if (claimsSummary.unverifiable > 0 && status !== 'FAIL') {\n    status = 'WARN';\n    issues.push(`${claimsSummary.unverifiable} unverifiable claims`);\n  }\n\n  // Check guideline conflicts\n  const guidelineSummary = guidelineConflicts?.conflict_summary || {};\n  if (guidelineSummary.direct_conflicts > 0) {\n    status = 'FAIL';\n    issues.push(`${guidelineSummary.direct_conflicts} direct guideline conflicts`);\n  }\n  if ((guidelineSummary.outdated_references > 0 || guidelineSummary.omissions > 0) && status === 'PASS') {\n    status = 'WARN';\n  }\n\n  return { status, issues };\n}\n\n// Calculate priority items count\nfunction countPriorityItems(checklist) {\n  let count = 0;\n  const accuracy = checklist?.clinical_accuracy || {};\n  \n  // Count HIGH priority items\n  const doses = accuracy.doses_to_verify || [];\n  const thresholds = accuracy.thresholds_to_confirm || [];\n  const claims = accuracy.claims_to_verify || [];\n  \n  count += doses.filter(d => d.priority === 'HIGH').length;\n  count += thresholds.filter(t => t.priority === 'HIGH').length;\n  count += claims.filter(c => c.priority === 'HIGH').length;\n  \n  return count;\n}\n\n// Count items requiring verification\nfunction countVerificationItems(doseExtraction, claimVerification, guidelineConflicts) {\n  let count = 0;\n  \n  count += (doseExtraction?.extraction_summary?.total_items || 0);\n  count += (claimVerification?.verification_summary?.total_claims || 0);\n  count += (guidelineConflicts?.conflict_summary?.total_recommendations_checked || 0);\n  \n  return count;\n}\n\n// Extract estimated review time from checklist or calculate\nfunction getEstimatedReviewTime(checklist) {\n  if (checklist?.checklist_metadata?.estimated_review_time) {\n    return checklist.checklist_metadata.estimated_review_time;\n  }\n  // Default calculation: base 15 min + items\n  const items = countPriorityItems(checklist);\n  const minutes = 15 + (items * 2);\n  return `${minutes} minutes`;\n}\n\nconst { status, issues } = calculateValidationStatus(\n  input.dose_extraction,\n  input.claim_verification,\n  input.guideline_conflicts\n);\n\n// Build final validation report\nconst validationReport = {\n  validation_id: input.validation_id,\n  draft_id: input.draft_id,\n  validation_status: status,\n  \n  dose_extraction: input.dose_extraction || {\n    extraction_summary: { total_items: 0 },\n    drug_doses: [],\n    clinical_thresholds: [],\n    lab_values: [],\n    timeframes: [],\n    contraindications: []\n  },\n  \n  claim_verification: input.claim_verification || {\n    verification_summary: { total_claims: 0 },\n    verified_claims: [],\n    flagged_claims: [],\n    uncited_claims: [],\n    outdated_claims: [],\n    recommendations: []\n  },\n  \n  guideline_conflicts: input.guideline_conflicts || {\n    conflict_summary: { total_recommendations_checked: 0 },\n    conflicts: [],\n    regional_variations: [],\n    omissions: [],\n    guideline_alignment_score: 0,\n    priority_actions: []\n  },\n  \n  reviewer_checklist: input.reviewer_checklist || {\n    checklist_metadata: {},\n    clinical_accuracy: {},\n    clinical_pearls_needed: [],\n    regional_considerations: [],\n    special_populations: [],\n    content_completeness: {}\n  },\n  \n  summary: {\n    high_priority_items: countPriorityItems(input.reviewer_checklist),\n    items_requiring_verification: countVerificationItems(\n      input.dose_extraction,\n      input.claim_verification,\n      input.guideline_conflicts\n    ),\n    estimated_review_time: getEstimatedReviewTime(input.reviewer_checklist),\n    issues_detected: issues\n  },\n  \n  ready_for_expert_review: status !== 'FAIL',\n  \n  _metadata: {\n    validation_started_at: input._started_at,\n    validation_completed_at: new Date().toISOString(),\n    format: input.format,\n    topic: input.topic\n  }\n};\n\nreturn { json: validationReport };"
+      },
+      "id": "assemble-report",
+      "name": "Assemble Validation Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2440, 300]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Initialize Validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize Validation": {
+      "main": [
+        [
+          {
+            "node": "Extract Doses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Llama 3.2 (Doses)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Extract Doses",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Doses": {
+      "main": [
+        [
+          {
+            "node": "Parse Doses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Doses": {
+      "main": [
+        [
+          {
+            "node": "Verify Claims",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Mistral (Claims)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Verify Claims",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Claims": {
+      "main": [
+        [
+          {
+            "node": "Parse Claims",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Claims": {
+      "main": [
+        [
+          {
+            "node": "Check Guidelines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Sonnet (Guidelines)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Check Guidelines",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Guidelines": {
+      "main": [
+        [
+          {
+            "node": "Parse Guidelines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Guidelines": {
+      "main": [
+        [
+          {
+            "node": "Generate Checklist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Llama 3.2 (Checklist)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Generate Checklist",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Checklist": {
+      "main": [
+        [
+          {
+            "node": "Parse Checklist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Checklist": {
+      "main": [
+        [
+          {
+            "node": "Assemble Validation Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "FOAM",
+      "id": "foam-tag"
+    },
+    {
+      "name": "Validation",
+      "id": "validation-tag"
+    },
+    {
+      "name": "Common",
+      "id": "common-tag"
+    }
+  ],
+  "versionId": "1.0.0",
+  "meta": {
+    "instanceId": "foam-n8n-instance",
+    "notes": "Validation system workflow that validates draft content by extracting doses, verifying claims, checking guideline alignment, and generating a reviewer checklist. Uses Ollama for cost-efficient local processing (Llama 3.2 for dose extraction and checklist generation, Mistral for claim verification) and Claude Sonnet for guideline conflict detection which requires deeper reasoning."
+  }
+}

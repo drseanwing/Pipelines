@@ -1,0 +1,17 @@
+# =============================================================================
+# FOAM N8N - Ollama Models Configuration
+# =============================================================================
+# List of models to be pulled during container initialization
+# Models are pulled in order - put most important first
+#
+# Set FOAM_PULL_MODELS=true to enable automatic model pulling
+# =============================================================================
+
+# Primary models for FOAM workflows
+llama3.2
+mistral
+
+# Optional: Additional models (uncomment as needed)
+# codellama
+# phi3
+# gemma2

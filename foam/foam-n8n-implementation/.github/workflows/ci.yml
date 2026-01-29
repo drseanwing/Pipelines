@@ -1,0 +1,579 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+jobs:
+  # =============================================================================
+  # JOB 1: Validate JSON Syntax (runs first, required by other jobs)
+  # =============================================================================
+  validate-json:
+    name: Validate JSON Files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate workflow JSON files
+        run: |
+          echo "Validating JSON files in workflows/ directory..."
+          EXIT_CODE=0
+          for file in workflows/*.json; do
+            if [ -f "$file" ]; then
+              echo "Validating $file..."
+              if ! python3 -m json.tool "$file" > /dev/null 2>&1; then
+                echo "ERROR: Invalid JSON in $file"
+                EXIT_CODE=1
+              else
+                echo "✓ Valid: $file"
+              fi
+            fi
+          done
+          exit $EXIT_CODE
+
+      - name: Validate schema JSON files
+        run: |
+          echo "Validating JSON files in schemas/ directory..."
+          EXIT_CODE=0
+          for file in schemas/*.json; do
+            if [ -f "$file" ]; then
+              echo "Validating $file..."
+              if ! python3 -m json.tool "$file" > /dev/null 2>&1; then
+                echo "ERROR: Invalid JSON in $file"
+                EXIT_CODE=1
+              else
+                echo "✓ Valid: $file"
+              fi
+            fi
+          done
+          exit $EXIT_CODE
+
+  # =============================================================================
+  # JOB 2: Validate JSON Schemas (depends on validate-json)
+  # =============================================================================
+  validate-schemas:
+    name: Validate JSON Schemas
+    runs-on: ubuntu-latest
+    needs: validate-json
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install ajv-cli
+        run: npm install -g ajv-cli ajv-formats
+
+      - name: Validate schema files are valid JSON Schema draft-07
+        run: |
+          echo "Validating JSON Schema files..."
+          EXIT_CODE=0
+          for schema in schemas/*.json; do
+            if [ -f "$schema" ]; then
+              echo "Validating $schema is valid JSON Schema..."
+              # Check that schema has $schema property set to draft-07
+              if ! grep -q '"$schema".*"http://json-schema.org/draft-07/schema#"' "$schema"; then
+                echo "WARNING: $schema may not be draft-07 schema"
+              fi
+              # Validate schema is well-formed by compiling it
+              if ! ajv compile -s "$schema" --spec=draft7 2>&1; then
+                echo "ERROR: $schema is not a valid JSON Schema"
+                EXIT_CODE=1
+              else
+                echo "✓ Valid schema: $schema"
+              fi
+            fi
+          done
+          exit $EXIT_CODE
+
+      - name: Create sample test data
+        run: |
+          mkdir -p test-data
+
+          # Sample topic request
+          cat > test-data/sample-topic-request.json << 'EOF'
+          {
+            "format": "case-based",
+            "topic": {
+              "title": "Management of Acute Respiratory Failure",
+              "clinical_question": "What is the optimal ventilation strategy for ARDS?"
+            },
+            "requestor": {
+              "name": "Dr. Test",
+              "email": "test@example.com",
+              "department": "Emergency Medicine"
+            },
+            "target_audience": "emergency_physicians",
+            "urgency": "routine"
+          }
+          EOF
+
+          # Sample evidence package
+          cat > test-data/sample-evidence-package.json << 'EOF'
+          {
+            "request_id": "test-123",
+            "sources": [
+              {
+                "pmid": "12345678",
+                "title": "Test Article",
+                "authors": ["Author A", "Author B"],
+                "journal": "Test Journal",
+                "year": 2023,
+                "type": "RCT",
+                "quality_score": 8
+              }
+            ],
+            "search_strategy": "Test search",
+            "date_range": {
+              "start": "2020-01-01",
+              "end": "2024-01-01"
+            }
+          }
+          EOF
+
+          # Sample review request
+          cat > test-data/sample-review-request.json << 'EOF'
+          {
+            "request_id": "test-123",
+            "content_id": "content-456",
+            "reviewer_type": "peer",
+            "focus_areas": ["accuracy", "clarity"]
+          }
+          EOF
+
+          # Sample draft content
+          cat > test-data/sample-draft-content.json << 'EOF'
+          {
+            "request_id": "test-123",
+            "format": "case-based",
+            "sections": {
+              "introduction": "Test introduction",
+              "case_presentation": "Test case",
+              "discussion": "Test discussion"
+            },
+            "metadata": {
+              "version": 1,
+              "word_count": 100
+            }
+          }
+          EOF
+
+      - name: Test sample data against schemas
+        run: |
+          echo "Testing sample data against schemas..."
+          EXIT_CODE=0
+
+          # Test topic request
+          if [ -f "schemas/topic-request.schema.json" ] && [ -f "test-data/sample-topic-request.json" ]; then
+            echo "Testing topic request..."
+            if ! ajv validate -s schemas/topic-request.schema.json -d test-data/sample-topic-request.json --spec=draft7; then
+              echo "ERROR: Sample topic request does not validate"
+              EXIT_CODE=1
+            else
+              echo "✓ Topic request validates"
+            fi
+          fi
+
+          # Test evidence package
+          if [ -f "schemas/evidence-package.schema.json" ] && [ -f "test-data/sample-evidence-package.json" ]; then
+            echo "Testing evidence package..."
+            if ! ajv validate -s schemas/evidence-package.schema.json -d test-data/sample-evidence-package.json --spec=draft7; then
+              echo "ERROR: Sample evidence package does not validate"
+              EXIT_CODE=1
+            else
+              echo "✓ Evidence package validates"
+            fi
+          fi
+
+          # Test review request
+          if [ -f "schemas/review-request.schema.json" ] && [ -f "test-data/sample-review-request.json" ]; then
+            echo "Testing review request..."
+            if ! ajv validate -s schemas/review-request.schema.json -d test-data/sample-review-request.json --spec=draft7; then
+              echo "ERROR: Sample review request does not validate"
+              EXIT_CODE=1
+            else
+              echo "✓ Review request validates"
+            fi
+          fi
+
+          # Test draft content
+          if [ -f "schemas/draft-content.schema.json" ] && [ -f "test-data/sample-draft-content.json" ]; then
+            echo "Testing draft content..."
+            if ! ajv validate -s schemas/draft-content.schema.json -d test-data/sample-draft-content.json --spec=draft7; then
+              echo "ERROR: Sample draft content does not validate"
+              EXIT_CODE=1
+            else
+              echo "✓ Draft content validates"
+            fi
+          fi
+
+          exit $EXIT_CODE
+
+  # =============================================================================
+  # JOB 3: Lint Shell Scripts (depends on validate-json)
+  # =============================================================================
+  lint-shell-scripts:
+    name: Lint Shell Scripts
+    runs-on: ubuntu-latest
+    needs: validate-json
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Run shellcheck on all shell scripts
+        run: |
+          echo "Running shellcheck on shell scripts..."
+          EXIT_CODE=0
+          for script in scripts/*.sh; do
+            if [ -f "$script" ]; then
+              echo "Checking $script..."
+              # SC2086: Allow unquoted variables (warning level)
+              # SC1091: Allow non-followed source files (warning level)
+              # Fail only on errors, allow warnings
+              if ! shellcheck -e SC2086,SC1091 -S error "$script"; then
+                echo "ERROR: Shellcheck errors in $script"
+                EXIT_CODE=1
+              else
+                echo "✓ Passed: $script"
+                # Show warnings but don't fail
+                shellcheck -e SC2086,SC1091 "$script" || true
+              fi
+            fi
+          done
+          exit $EXIT_CODE
+
+  # =============================================================================
+  # JOB 4: Validate Docker Compose Files (depends on validate-json)
+  # =============================================================================
+  validate-docker-compose:
+    name: Validate Docker Compose
+    runs-on: ubuntu-latest
+    needs: validate-json
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install docker-compose
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y docker-compose
+
+      - name: Validate main docker-compose.yml
+        run: |
+          echo "Validating docker-compose.yml..."
+          if docker-compose -f docker-compose.yml config > /dev/null 2>&1; then
+            echo "✓ docker-compose.yml is valid"
+          else
+            echo "ERROR: docker-compose.yml validation failed"
+            docker-compose -f docker-compose.yml config
+            exit 1
+          fi
+
+      - name: Validate docker-compose.prod.yml
+        run: |
+          echo "Validating docker-compose.prod.yml..."
+          # Set required environment variables for validation
+          export DOMAIN=example.com
+          export LETSENCRYPT_EMAIL=test@example.com
+          export N8N_USER=admin
+          export N8N_PASSWORD=testpass
+          export POSTGRES_USER=foam
+          export POSTGRES_PASSWORD=testpass
+          export TRAEFIK_BASIC_AUTH='admin:$$apr1$$abc'
+          export ANTHROPIC_API_KEY=test-key
+          export OPENAI_API_KEY=test-key
+          export SERP_API_KEY=test-key
+
+          if docker-compose -f docker-compose.prod.yml config > /dev/null 2>&1; then
+            echo "✓ docker-compose.prod.yml is valid"
+          else
+            echo "ERROR: docker-compose.prod.yml validation failed"
+            docker-compose -f docker-compose.prod.yml config
+            exit 1
+          fi
+
+      - name: Validate docker-compose.monitoring.yml
+        run: |
+          echo "Validating docker-compose.monitoring.yml..."
+          # Set required environment variables for validation
+          export DOMAIN=example.com
+          export GRAFANA_ADMIN_PASSWORD=testpass
+          export POSTGRES_USER=foam
+          export POSTGRES_PASSWORD=testpass
+
+          if docker-compose -f docker-compose.monitoring.yml config > /dev/null 2>&1; then
+            echo "✓ docker-compose.monitoring.yml is valid"
+          else
+            echo "ERROR: docker-compose.monitoring.yml validation failed"
+            docker-compose -f docker-compose.monitoring.yml config
+            exit 1
+          fi
+
+  # =============================================================================
+  # JOB 5: Check Environment Variable Consistency (depends on validate-json)
+  # =============================================================================
+  check-env-consistency:
+    name: Check Environment Variables
+    runs-on: ubuntu-latest
+    needs: validate-json
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract and verify environment variables
+        run: |
+          echo "Checking environment variable consistency..."
+
+          # Extract variables from docker-compose files
+          extract_vars() {
+            local file=$1
+            grep -oE '\$\{[A-Z_][A-Z0-9_]*(:?-[^}]*)?\}' "$file" | \
+              sed -E 's/\$\{([A-Z_][A-Z0-9_]*)(:-[^}]*)?\}/\1/' | \
+              sort -u
+          }
+
+          # Check if variable is documented in .env.example file
+          check_documented() {
+            local var=$1
+            local env_file=$2
+            if [ ! -f "$env_file" ]; then
+              return 1
+            fi
+            # Check if variable is defined (not just in comments)
+            grep -q "^${var}=" "$env_file" || grep -q "^#${var}=" "$env_file"
+          }
+
+          EXIT_CODE=0
+
+          # Check main docker-compose.yml
+          if [ -f "docker-compose.yml" ]; then
+            echo "Checking docker-compose.yml..."
+            UNDOCUMENTED=""
+            for var in $(extract_vars docker-compose.yml); do
+              if ! check_documented "$var" ".env.example"; then
+                UNDOCUMENTED="$UNDOCUMENTED $var"
+              fi
+            done
+            if [ -n "$UNDOCUMENTED" ]; then
+              echo "WARNING: Variables in docker-compose.yml not documented in .env.example:"
+              echo "$UNDOCUMENTED" | tr ' ' '\n' | grep -v '^$'
+            else
+              echo "✓ All variables documented in .env.example"
+            fi
+          fi
+
+          # Check docker-compose.prod.yml
+          if [ -f "docker-compose.prod.yml" ]; then
+            echo "Checking docker-compose.prod.yml..."
+            UNDOCUMENTED=""
+            for var in $(extract_vars docker-compose.prod.yml); do
+              if ! check_documented "$var" ".env.example"; then
+                UNDOCUMENTED="$UNDOCUMENTED $var"
+              fi
+            done
+            if [ -n "$UNDOCUMENTED" ]; then
+              echo "WARNING: Variables in docker-compose.prod.yml not documented in .env.example:"
+              echo "$UNDOCUMENTED" | tr ' ' '\n' | grep -v '^$'
+            else
+              echo "✓ All production variables documented in .env.example"
+            fi
+          fi
+
+          # Check docker-compose.monitoring.yml
+          if [ -f "docker-compose.monitoring.yml" ]; then
+            echo "Checking docker-compose.monitoring.yml..."
+            UNDOCUMENTED=""
+            for var in $(extract_vars docker-compose.monitoring.yml); do
+              # Check both .env.example and .env.monitoring.example
+              if ! check_documented "$var" ".env.example" && ! check_documented "$var" ".env.monitoring.example"; then
+                UNDOCUMENTED="$UNDOCUMENTED $var"
+              fi
+            done
+            if [ -n "$UNDOCUMENTED" ]; then
+              echo "WARNING: Variables in docker-compose.monitoring.yml not documented in .env files:"
+              echo "$UNDOCUMENTED" | tr ' ' '\n' | grep -v '^$'
+            else
+              echo "✓ All monitoring variables documented"
+            fi
+          fi
+
+          # This is informational only, don't fail the build
+          exit 0
+
+  # =============================================================================
+  # JOB 6: Validate N8N Workflow Structure (depends on validate-json)
+  # =============================================================================
+  validate-n8n-workflows:
+    name: Validate N8N Workflows
+    runs-on: ubuntu-latest
+    needs: validate-json
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate workflow structure
+        run: |
+          cat > validate-workflows.js << 'EOF'
+          const fs = require('fs');
+          const path = require('path');
+
+          const workflowDir = 'workflows';
+          let exitCode = 0;
+
+          // Get all JSON files in workflows directory
+          const files = fs.readdirSync(workflowDir)
+            .filter(f => f.endsWith('.json'))
+            .map(f => path.join(workflowDir, f));
+
+          console.log(`Validating ${files.length} workflow files...\n`);
+
+          files.forEach(file => {
+            console.log(`Checking ${file}...`);
+
+            try {
+              const workflow = JSON.parse(fs.readFileSync(file, 'utf8'));
+
+              // Check required properties
+              const requiredProps = ['name', 'nodes', 'connections'];
+              const missingProps = requiredProps.filter(prop => !workflow[prop]);
+
+              if (missingProps.length > 0) {
+                console.error(`  ✗ ERROR: Missing required properties: ${missingProps.join(', ')}`);
+                exitCode = 1;
+              } else {
+                console.log(`  ✓ Has all required properties`);
+              }
+
+              // Check nodes array is not empty
+              if (!Array.isArray(workflow.nodes) || workflow.nodes.length === 0) {
+                console.error(`  ✗ ERROR: Workflow has no nodes`);
+                exitCode = 1;
+              } else {
+                console.log(`  ✓ Has ${workflow.nodes.length} nodes`);
+              }
+
+              // Build node ID index
+              const nodeIds = new Set();
+              const duplicateIds = new Set();
+
+              workflow.nodes.forEach(node => {
+                if (!node.id) {
+                  console.error(`  ✗ ERROR: Node missing 'id' property`);
+                  exitCode = 1;
+                } else {
+                  if (nodeIds.has(node.id)) {
+                    duplicateIds.add(node.id);
+                  }
+                  nodeIds.add(node.id);
+                }
+
+                if (!node.type) {
+                  console.error(`  ✗ ERROR: Node '${node.id}' missing 'type' property`);
+                  exitCode = 1;
+                }
+
+                if (!node.name) {
+                  console.error(`  ✗ ERROR: Node '${node.id}' missing 'name' property`);
+                  exitCode = 1;
+                }
+              });
+
+              // Check for duplicate node IDs
+              if (duplicateIds.size > 0) {
+                console.error(`  ✗ ERROR: Duplicate node IDs found: ${Array.from(duplicateIds).join(', ')}`);
+                exitCode = 1;
+              } else {
+                console.log(`  ✓ No duplicate node IDs`);
+              }
+
+              // Check connections reference existing nodes
+              if (workflow.connections && typeof workflow.connections === 'object') {
+                const connectionCount = Object.keys(workflow.connections).length;
+                console.log(`  ✓ Has ${connectionCount} connection entries`);
+
+                let orphanedConnections = 0;
+
+                Object.entries(workflow.connections).forEach(([sourceId, outputs]) => {
+                  // Check source node exists
+                  if (!nodeIds.has(sourceId)) {
+                    console.error(`  ✗ ERROR: Connection references non-existent source node: ${sourceId}`);
+                    orphanedConnections++;
+                  }
+
+                  // Check target nodes exist
+                  if (outputs && typeof outputs === 'object') {
+                    Object.values(outputs).forEach(outputArray => {
+                      if (Array.isArray(outputArray)) {
+                        outputArray.forEach(targetArray => {
+                          if (Array.isArray(targetArray)) {
+                            targetArray.forEach(target => {
+                              if (target && target.node && !nodeIds.has(target.node)) {
+                                console.error(`  ✗ ERROR: Connection references non-existent target node: ${target.node}`);
+                                orphanedConnections++;
+                              }
+                            });
+                          }
+                        });
+                      }
+                    });
+                  }
+                });
+
+                if (orphanedConnections > 0) {
+                  console.error(`  ✗ ERROR: Found ${orphanedConnections} orphaned connections`);
+                  exitCode = 1;
+                } else {
+                  console.log(`  ✓ No orphaned connections`);
+                }
+              }
+
+              console.log(`✓ ${file} validated successfully\n`);
+
+            } catch (error) {
+              console.error(`✗ ERROR: Failed to validate ${file}`);
+              console.error(`  ${error.message}\n`);
+              exitCode = 1;
+            }
+          });
+
+          if (exitCode === 0) {
+            console.log('All workflows validated successfully!');
+          } else {
+            console.error('Workflow validation failed!');
+          }
+
+          process.exit(exitCode);
+          EOF
+
+          node validate-workflows.js
+
+      - name: Summary
+        if: success()
+        run: |
+          echo "✓ All validation checks passed!"
+          echo ""
+          echo "Validation summary:"
+          echo "- JSON syntax: valid"
+          echo "- JSON schemas: valid"
+          echo "- Workflow structure: valid"
+          echo "- Required properties: present"
+          echo "- Node connections: valid"
+          echo "- No orphaned connections"

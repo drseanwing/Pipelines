@@ -1,0 +1,521 @@
+{
+  "name": "QI-Research Pipeline - Ethics Stage",
+  "id": "ethics-workflow-001",
+  "tags": ["qi", "research", "ethics", "governance", "stage-4"],
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {},
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "id": "ethics-trigger"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "prompt": "=You are an expert in research ethics and governance, specializing in healthcare quality improvement and clinical research ethics frameworks.\n\nBased on the project information and methodology, determine the appropriate ethics pathway:\n\n**Project Context:**\n**Title:** {{ $json.intake.project_title }}\n**Project Type:** {{ $json.classification.project_type }}\n**Clinical Problem:** {{ $json.intake.clinical_problem }}\n**Target Population:** {{ $json.intake.target_population }}\n**Setting:** {{ $json.intake.setting }}\n\n**Methodology:**\n{{ JSON.stringify($json.methodology, null, 2) }}\n\n**Classification:**\n{{ JSON.stringify($json.classification, null, 2) }}\n\nDetermine the appropriate ethics pathway considering:\n1. Whether HREC (Human Research Ethics Committee) approval is required\n2. Whether RGO (Research Governance Office) approval is required\n3. Site-specific governance requirements\n4. NHMRC National Statement chapters that apply\n5. Estimated timeline for approvals\n6. Regulatory considerations (TGA, Privacy Act, etc.)\n\nFor Queensland Health context:\n- QI activities with LOW or NEGLIGIBLE risk may not require HREC if they meet QH QI criteria\n- Research projects typically require HREC approval\n- Multi-site studies require consideration of SSA (Site Specific Assessment)\n- Aboriginal and Torres Strait Islander research requires additional consultation\n\nProvide response in JSON format:\n{\n  \"ethics_pathway\": {\n    \"pathway_type\": \"HREC_FULL|HREC_LOW_NEGLIGIBLE|QI_ETHICS_REVIEW|SITE_GOVERNANCE_ONLY|EXEMPT\",\n    \"requires_hrec\": true|false,\n    \"hrec_type\": \"FULL|LOW_NEGLIGIBLE|NOT_REQUIRED\",\n    \"requires_rgo\": true|false,\n    \"requires_site_governance\": true|false,\n    \"estimated_timeline_weeks\": 0,\n    \"rationale\": \"Detailed explanation of pathway determination\",\n    \"nhmrc_chapters_applicable\": [\"List of applicable National Statement chapters\"],\n    \"regulatory_frameworks\": [\n      {\n        \"framework\": \"TGA|Privacy_Act|Aboriginal_Torres_Strait_Islander|other\",\n        \"applicable\": true|false,\n        \"requirements\": \"Specific requirements\"\n      }\n    ],\n    \"special_considerations\": [\"List of special ethical considerations\"],\n    \"multi_site_considerations\": {\n      \"is_multi_site\": true|false,\n      \"requires_ssa\": true|false,\n      \"coordinating_site\": \"Site name if applicable\"\n    }\n  }\n}\n\nReturn ONLY the JSON object, no additional text."
+      },
+      "name": "Determine Ethics Pathway",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [450, 300],
+      "id": "determine-ethics-pathway",
+      "credentials": {
+        "anthropicApi": {
+          "id": "1",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse Ethics Pathway Node\n// Extract ethics pathway from Claude's response and merge with project data\n\nconst project = $input.first().json;\nconst pathwayRaw = $input.item(0).json.output;\nconst pathway = JSON.parse(pathwayRaw);\n\nreturn {\n  json: {\n    project: project,\n    ethics: {\n      ethics_pathway: pathway.ethics_pathway\n    }\n  }\n};"
+      },
+      "name": "Parse Ethics Pathway",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300],
+      "id": "parse-ethics-pathway"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "prompt": "=You are an expert in research ethics conducting comprehensive risk assessments.\n\nBased on the project details and methodology, conduct a thorough risk assessment:\n\n**Project Context:**\n**Title:** {{ $json.project.intake.project_title }}\n**Clinical Problem:** {{ $json.project.intake.clinical_problem }}\n**Target Population:** {{ $json.project.intake.target_population }}\n**Setting:** {{ $json.project.intake.setting }}\n\n**Methodology:**\n{{ JSON.stringify($json.project.methodology, null, 2) }}\n\n**Ethics Pathway:**\n{{ JSON.stringify($json.ethics.ethics_pathway, null, 2) }}\n\nConduct risk assessment covering:\n1. Physical risks to participants\n2. Psychological/social risks\n3. Privacy and confidentiality risks\n4. Legal/liability risks\n5. Cultural safety risks\n6. Risk to research integrity\n7. Reputational risks\n\nAssess each risk dimension and provide overall risk level (NEGLIGIBLE, LOW, MEDIUM, HIGH).\n\nProvide response in JSON format:\n{\n  \"risk_assessment\": {\n    \"overall_level\": \"NEGLIGIBLE|LOW|MEDIUM|HIGH\",\n    \"overall_justification\": \"Comprehensive justification for overall risk rating\",\n    \"risk_domains\": [\n      {\n        \"domain\": \"PHYSICAL|PSYCHOLOGICAL_SOCIAL|PRIVACY_CONFIDENTIALITY|LEGAL_LIABILITY|CULTURAL_SAFETY|RESEARCH_INTEGRITY|REPUTATIONAL\",\n        \"level\": \"NEGLIGIBLE|LOW|MEDIUM|HIGH\",\n        \"risk_factors\": [\n          {\n            \"factor\": \"Specific risk factor\",\n            \"likelihood\": \"RARE|UNLIKELY|POSSIBLE|LIKELY|ALMOST_CERTAIN\",\n            \"consequence\": \"INSIGNIFICANT|MINOR|MODERATE|MAJOR|SEVERE\",\n            \"mitigation\": \"How this risk will be mitigated\"\n          }\n        ],\n        \"domain_justification\": \"Justification for domain risk level\"\n      }\n    ],\n    \"vulnerable_populations\": {\n      \"involves_vulnerable_populations\": true|false,\n      \"populations\": [\"List if applicable: children, cognitively_impaired, prisoners, indigenous, pregnant_women, etc.\"],\n      \"additional_safeguards\": [\"List of additional safeguards for vulnerable populations\"]\n    },\n    \"benefit_risk_analysis\": {\n      \"potential_benefits\": [\"List of potential benefits to participants/community\"],\n      \"benefits_outweigh_risks\": true|false,\n      \"justification\": \"Justification of benefit-risk balance\"\n    },\n    \"monitoring_plan\": {\n      \"adverse_event_monitoring\": \"How adverse events will be monitored\",\n      \"reporting_procedures\": \"Procedures for reporting adverse events\",\n      \"stopping_criteria\": \"Criteria for stopping the study if risks are too high\"\n    }\n  }\n}\n\nReturn ONLY the JSON object, no additional text."
+      },
+      "name": "Conduct Risk Assessment",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [850, 300],
+      "id": "conduct-risk-assessment",
+      "credentials": {
+        "anthropicApi": {
+          "id": "1",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse Risk Assessment Node\n// Extract and merge risk assessment\n\nconst data = $input.first().json;\nconst riskRaw = $input.item(0).json.output;\nconst risk = JSON.parse(riskRaw);\n\nconst ethics = {\n  ...data.ethics,\n  risk_assessment: risk.risk_assessment\n};\n\nreturn {\n  json: {\n    project: data.project,\n    ethics: ethics\n  }\n};"
+      },
+      "name": "Parse Risk Assessment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 300],
+      "id": "parse-risk-assessment"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "prompt": "=You are an expert in research ethics and informed consent procedures.\n\nBased on the project details, methodology, and risk assessment, determine consent requirements:\n\n**Project Context:**\n**Title:** {{ $json.project.intake.project_title }}\n**Target Population:** {{ $json.project.intake.target_population }}\n**Setting:** {{ $json.project.intake.setting }}\n\n**Methodology:**\n{{ JSON.stringify($json.project.methodology.participants, null, 2) }}\n\n**Risk Assessment:**\n{{ JSON.stringify($json.ethics.risk_assessment, null, 2) }}\n\n**Ethics Pathway:**\n{{ JSON.stringify($json.ethics.ethics_pathway, null, 2) }}\n\nDetermine consent requirements considering:\n1. Type of consent required (written, verbal, opt-out, waiver)\n2. Consent process and documentation\n3. Information sheet requirements\n4. Special consent considerations for vulnerable populations\n5. Capacity assessment procedures\n6. Withdrawal procedures\n7. Re-consent requirements (if applicable)\n\nProvide response in JSON format:\n{\n  \"consent_requirements\": {\n    \"consent_type\": \"WRITTEN_INFORMED|VERBAL|OPT_OUT|WAIVER|NOT_REQUIRED\",\n    \"waiver_eligible\": true|false,\n    \"waiver_justification\": \"Justification if waiver is recommended\",\n    \"consent_process\": {\n      \"timing\": \"When consent will be obtained\",\n      \"who_obtains\": \"Who will obtain consent\",\n      \"setting\": \"Where consent will be obtained\",\n      \"duration\": \"Estimated time for consent process\",\n      \"language_considerations\": [\"Languages needed, translation requirements\"]\n    },\n    \"consent_documentation\": {\n      \"consent_form_required\": true|false,\n      \"participant_information_sheet_required\": true|false,\n      \"key_information_elements\": [\n        \"Purpose of research\",\n        \"What participation involves\",\n        \"Risks and benefits\",\n        \"Voluntary participation\",\n        \"Right to withdraw\",\n        \"Privacy and confidentiality\",\n        \"Contact information\",\n        \"Complaints process\"\n      ],\n      \"readability_target\": \"Target reading level (e.g., Grade 8)\",\n      \"length_guidance\": \"Recommended page length\"\n    },\n    \"capacity_assessment\": {\n      \"required\": true|false,\n      \"procedure\": \"How capacity will be assessed\",\n      \"who_assesses\": \"Who will assess capacity\"\n    },\n    \"vulnerable_population_considerations\": {\n      \"applicable\": true|false,\n      \"additional_requirements\": [\"List additional consent requirements for vulnerable populations\"],\n      \"guardian_consent\": {\n        \"required\": true|false,\n        \"who\": \"Parent, legal guardian, etc.\"\n      },\n      \"assent_required\": true|false\n    },\n    \"withdrawal\": {\n      \"process\": \"How participants can withdraw\",\n      \"data_handling\": \"What happens to data if participant withdraws\",\n      \"no_penalty\": \"Statement confirming no penalty for withdrawal\"\n    },\n    \"reconsent\": {\n      \"required\": true|false,\n      \"triggers\": [\"List of circumstances requiring re-consent\"]\n    },\n    \"consent_storage\": {\n      \"how_stored\": \"How consent forms will be stored\",\n      \"security_measures\": \"Security measures for consent documentation\",\n      \"retention_period\": \"How long consent forms will be retained\"\n    }\n  }\n}\n\nReturn ONLY the JSON object, no additional text."
+      },
+      "name": "Determine Consent Requirements",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [1250, 300],
+      "id": "determine-consent-requirements",
+      "credentials": {
+        "anthropicApi": {
+          "id": "1",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse Consent Requirements Node\n// Extract and merge consent requirements\n\nconst data = $input.first().json;\nconst consentRaw = $input.item(0).json.output;\nconst consent = JSON.parse(consentRaw);\n\nconst ethics = {\n  ...data.ethics,\n  consent_requirements: consent.consent_requirements\n};\n\nreturn {\n  json: {\n    project: data.project,\n    ethics: ethics\n  }\n};"
+      },
+      "name": "Parse Consent Requirements",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1450, 300],
+      "id": "parse-consent-requirements"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "prompt": "=You are an expert in research data governance, privacy law, and information security.\n\nBased on the project details and methodology, plan comprehensive data governance:\n\n**Project Context:**\n**Title:** {{ $json.project.intake.project_title }}\n**Setting:** {{ $json.project.intake.setting }}\n\n**Data Collection Plan:**\n{{ JSON.stringify($json.project.methodology.data_collection, null, 2) }}\n\n**Risk Assessment:**\n{{ JSON.stringify($json.ethics.risk_assessment, null, 2) }}\n\n**Consent Requirements:**\n{{ JSON.stringify($json.ethics.consent_requirements, null, 2) }}\n\nPlan data governance covering:\n1. Data types and sensitivity classification\n2. Privacy and confidentiality measures\n3. Data security requirements\n4. Data storage and retention\n5. Data access and sharing\n6. Deidentification procedures\n7. Compliance with Privacy Act, GDPR (if applicable), health records legislation\n\nProvide response in JSON format:\n{\n  \"data_governance\": {\n    \"data_types\": [\n      {\n        \"type\": \"IDENTIFIED|REIDENTIFIABLE|DEIDENTIFIED|ANONYMOUS\",\n        \"category\": \"CLINICAL|DEMOGRAPHIC|ADMINISTRATIVE|GENETIC|IMAGE|other\",\n        \"sensitivity\": \"PUBLIC|INTERNAL|CONFIDENTIAL|RESTRICTED|HIGHLY_RESTRICTED\",\n        \"privacy_classification\": \"Classification under Privacy Act\",\n        \"volume\": \"Estimated data volume\"\n      }\n    ],\n    \"privacy_measures\": {\n      \"legal_framework\": [\"Privacy_Act_1988\", \"Health_Records_Act\", \"GDPR\", \"other\"],\n      \"privacy_impact_assessment_required\": true|false,\n      \"privacy_principles_addressed\": [\"List of privacy principles addressed\"],\n      \"participant_rights\": [\"Access\", \"Correction\", \"Erasure\", \"etc.\"],\n      \"privacy_officer\": \"Role/position responsible for privacy compliance\"\n    },\n    \"confidentiality_measures\": [\n      {\n        \"measure\": \"Specific confidentiality measure\",\n        \"purpose\": \"Why this measure is necessary\",\n        \"implementation\": \"How it will be implemented\"\n      }\n    ],\n    \"deidentification\": {\n      \"method\": \"REMOVAL|PSEUDONYMISATION|AGGREGATION|OTHER\",\n      \"procedures\": \"Detailed deidentification procedures\",\n      \"linkage_maintained\": true|false,\n      \"reidentification_risk\": \"LOW|MEDIUM|HIGH\",\n      \"key_management\": \"How coding keys will be managed (if applicable)\"\n    },\n    \"data_security\": {\n      \"storage_location\": [\"Physical locations where data will be stored\"],\n      \"storage_medium\": [\"ELECTRONIC|PAPER|BOTH\"],\n      \"encryption\": {\n        \"required\": true|false,\n        \"standard\": \"Encryption standard\",\n        \"scope\": \"What data will be encrypted\"\n      },\n      \"access_controls\": {\n        \"authentication_method\": \"Password, MFA, biometric, etc.\",\n        \"authorization_model\": \"Role-based, need-to-know, etc.\",\n        \"access_log\": \"How access will be logged and monitored\"\n      },\n      \"physical_security\": [\"Physical security measures for paper records or devices\"],\n      \"network_security\": [\"Firewalls, VPN, secure network requirements\"],\n      \"backup_procedures\": {\n        \"frequency\": \"How often backups occur\",\n        \"location\": \"Where backups are stored\",\n        \"encryption\": \"Whether backups are encrypted\",\n        \"testing\": \"How backup restoration is tested\"\n      },\n      \"device_security\": [\"Laptop encryption, USB restrictions, mobile device management\"]\n    },\n    \"data_retention\": {\n      \"retention_period\": \"Minimum retention period (e.g., 15 years for clinical trials)\",\n      \"retention_justification\": \"Legal/regulatory requirements for retention\",\n      \"disposal_method\": \"How data will be disposed of after retention period\",\n      \"disposal_documentation\": \"How disposal will be documented\"\n    },\n    \"data_access\": {\n      \"who_has_access\": [\n        {\n          \"role\": \"Role/position\",\n          \"access_level\": \"FULL|PARTIAL|DEIDENTIFIED_ONLY\",\n          \"justification\": \"Why this role needs access\"\n        }\n      ],\n      \"third_party_access\": {\n        \"applicable\": true|false,\n        \"parties\": [\"List of third parties\"],\n        \"data_sharing_agreements_required\": true|false,\n        \"approval_process\": \"Process for approving third party access\"\n      }\n    },\n    \"data_sharing\": {\n      \"will_data_be_shared\": true|false,\n      \"sharing_scope\": \"PUBLIC_REPOSITORY|RESTRICTED_ACCESS|COLLABORATIVE_RESEARCH|NOT_SHARED\",\n      \"sharing_timeline\": \"When data will be available for sharing\",\n      \"sharing_platform\": \"Where data will be shared (if applicable)\",\n      \"sharing_conditions\": [\"Conditions for data sharing\"],\n      \"consent_for_sharing\": \"Whether participants consented to data sharing\"\n    },\n    \"data_quality\": {\n      \"quality_assurance_procedures\": [\"Procedures for ensuring data quality\"],\n      \"validation_rules\": [\"Data validation rules\"],\n      \"audit_trail\": \"How changes to data will be tracked\"\n    },\n    \"breach_management\": {\n      \"detection_procedures\": \"How breaches will be detected\",\n      \"response_plan\": \"Steps to take if breach occurs\",\n      \"notification_requirements\": \"Who must be notified in case of breach\",\n      \"prevention_measures\": [\"Measures to prevent breaches\"]\n    }\n  }\n}\n\nReturn ONLY the JSON object, no additional text."
+      },
+      "name": "Plan Data Governance",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [1650, 300],
+      "id": "plan-data-governance",
+      "credentials": {
+        "anthropicApi": {
+          "id": "1",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse Data Governance Node\n// Extract and merge data governance plan\n\nconst data = $input.first().json;\nconst governanceRaw = $input.item(0).json.output;\nconst governance = JSON.parse(governanceRaw);\n\nconst ethics = {\n  ...data.ethics,\n  data_governance: governance.data_governance\n};\n\nreturn {\n  json: {\n    project: data.project,\n    ethics: ethics\n  }\n};"
+      },
+      "name": "Parse Data Governance",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1850, 300],
+      "id": "parse-data-governance"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Identify Site Requirements Node\n// Extract site-specific governance requirements based on setting\n\nconst data = $input.first().json;\nconst setting = data.project.intake.setting;\nconst isMultiSite = data.ethics.ethics_pathway.multi_site_considerations.is_multi_site;\n\n// Generate site requirements based on setting and ethics pathway\nconst siteRequirements = [];\n\n// Parse setting to identify sites\nconst sites = isMultiSite ? setting.split(',').map(s => s.trim()) : [setting];\n\nsites.forEach((site, index) => {\n  siteRequirements.push({\n    site_name: site,\n    site_type: site.includes('Hospital') ? 'HOSPITAL' : site.includes('Primary') ? 'PRIMARY_CARE' : 'OTHER',\n    is_coordinating_site: index === 0 && isMultiSite,\n    governance_requirements: {\n      rgo_approval: data.ethics.ethics_pathway.requires_rgo,\n      site_specific_assessment: isMultiSite && data.ethics.ethics_pathway.multi_site_considerations.requires_ssa,\n      local_governance_approval: true,\n      research_governance_officer: 'To be determined',\n      indemnity_insurance: true,\n      local_investigator_required: isMultiSite\n    },\n    site_specific_considerations: [\n      'Local policy compliance',\n      'Staff training requirements',\n      'Resource availability',\n      'Local ethics considerations'\n    ],\n    estimated_approval_timeline_weeks: data.ethics.ethics_pathway.requires_rgo ? 4 : 2\n  });\n});\n\nconst ethics = {\n  ...data.ethics,\n  site_requirements: siteRequirements\n};\n\nreturn {\n  json: {\n    project: data.project,\n    ethics: ethics\n  }\n};"
+      },
+      "name": "Identify Site Requirements",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2050, 300],
+      "id": "identify-site-requirements"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Generate Governance Checklist Node\n// Create comprehensive governance checklist for ethics submission\n\nconst data = $input.first().json;\nconst ethics = data.ethics;\n\n// Generate checklist items based on ethics pathway and requirements\nconst checklist = [];\n\n// Documentation checklist\nchecklist.push({\n  category: 'DOCUMENTATION',\n  items: [\n    {\n      item: 'HREC application form completed',\n      required: ethics.ethics_pathway.requires_hrec,\n      status: 'PENDING',\n      notes: 'Use NHMRC standard form or site-specific form'\n    },\n    {\n      item: 'Protocol document prepared',\n      required: true,\n      status: 'PENDING',\n      notes: 'Include all methodology and ethics details'\n    },\n    {\n      item: 'Participant Information Sheet prepared',\n      required: ethics.consent_requirements.consent_documentation.participant_information_sheet_required,\n      status: 'PENDING',\n      notes: `Target readability: ${ethics.consent_requirements.consent_documentation.readability_target}`\n    },\n    {\n      item: 'Consent Form prepared',\n      required: ethics.consent_requirements.consent_documentation.consent_form_required,\n      status: 'PENDING',\n      notes: 'Ensure all required elements included'\n    },\n    {\n      item: 'Data collection instruments',\n      required: true,\n      status: 'PENDING',\n      notes: 'Include all surveys, interview guides, extraction forms'\n    }\n  ]\n});\n\n// Investigator requirements\nchecklist.push({\n  category: 'INVESTIGATOR_REQUIREMENTS',\n  items: [\n    {\n      item: 'CVs of all investigators',\n      required: true,\n      status: 'PENDING',\n      notes: 'Current CVs demonstrating relevant experience'\n    },\n    {\n      item: 'GCP certification',\n      required: ethics.ethics_pathway.requires_hrec,\n      status: 'PENDING',\n      notes: 'Good Clinical Practice training certificates'\n    },\n    {\n      item: 'Conflict of interest declarations',\n      required: true,\n      status: 'PENDING',\n      notes: 'All investigators must declare conflicts'\n    }\n  ]\n});\n\n// Site requirements\nchecklist.push({\n  category: 'SITE_GOVERNANCE',\n  items: ethics.site_requirements.map(site => ({\n    item: `Site approval for ${site.site_name}`,\n    required: true,\n    status: 'PENDING',\n    notes: `SSA required: ${site.governance_requirements.site_specific_assessment}`\n  }))\n});\n\n// Special requirements\nif (ethics.risk_assessment.vulnerable_populations.involves_vulnerable_populations) {\n  checklist.push({\n    category: 'VULNERABLE_POPULATIONS',\n    items: [\n      {\n        item: 'Additional safeguards documented',\n        required: true,\n        status: 'PENDING',\n        notes: `Populations: ${ethics.risk_assessment.vulnerable_populations.populations.join(', ')}`\n      }\n    ]\n  });\n}\n\n// Privacy and data governance\nchecklist.push({\n  category: 'PRIVACY_DATA_GOVERNANCE',\n  items: [\n    {\n      item: 'Privacy Impact Assessment',\n      required: ethics.data_governance.privacy_measures.privacy_impact_assessment_required,\n      status: 'PENDING',\n      notes: 'Complete if handling sensitive personal information'\n    },\n    {\n      item: 'Data Management Plan',\n      required: true,\n      status: 'PENDING',\n      notes: 'Document storage, security, retention, and disposal'\n    },\n    {\n      item: 'Data sharing agreements',\n      required: ethics.data_governance.data_access.third_party_access.data_sharing_agreements_required,\n      status: 'PENDING',\n      notes: 'If third party access required'\n    }\n  ]\n});\n\nconst ethicsWithChecklist = {\n  ...ethics,\n  governance_checklist: checklist\n};\n\nreturn {\n  json: {\n    project: data.project,\n    ethics: ethicsWithChecklist\n  }\n};"
+      },
+      "name": "Generate Governance Checklist",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2250, 300],
+      "id": "generate-governance-checklist"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "prompt": "=You are an expert research writer preparing ethics sections for research protocols.\n\nBased on the complete ethics evaluation, generate ethics considerations draft for protocol:\n\n**Ethics Evaluation:**\n{{ JSON.stringify($json.ethics, null, 2) }}\n\n**Project Context:**\n{{ JSON.stringify($json.project.intake, null, 2) }}\n\nGenerate comprehensive ethics section draft covering:\n1. Ethics approval pathway\n2. Informed consent procedures\n3. Risks and benefits\n4. Privacy and confidentiality\n5. Data management\n6. Withdrawal procedures\n7. Complaints process\n\nProvide response in JSON format:\n{\n  \"ethics_considerations_draft\": {\n    \"ethics_approval\": \"Paragraph describing ethics approval pathway and timeline\",\n    \"informed_consent\": \"Paragraph describing consent process, documentation, and special considerations\",\n    \"risks_benefits\": \"Paragraph describing risks, benefits, and mitigation strategies\",\n    \"privacy_confidentiality\": \"Paragraph describing privacy measures, confidentiality protections, and deidentification\",\n    \"data_management\": \"Paragraph describing data storage, security, retention, and disposal\",\n    \"participant_rights\": \"Paragraph describing right to withdraw, access to results, complaints process\",\n    \"vulnerable_populations\": \"Paragraph describing additional safeguards (if applicable)\",\n    \"cultural_considerations\": \"Paragraph describing cultural safety and engagement (if applicable)\"\n  }\n}\n\nReturn ONLY the JSON object, no additional text."
+      },
+      "name": "Generate Ethics Considerations Draft",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [2450, 300],
+      "id": "generate-ethics-draft",
+      "credentials": {
+        "anthropicApi": {
+          "id": "1",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse Ethics Draft Node\n// Extract and merge ethics draft\n\nconst data = $input.first().json;\nconst draftRaw = $input.item(0).json.output;\nconst draft = JSON.parse(draftRaw);\n\nconst ethics = {\n  ...data.ethics,\n  ethics_considerations_draft: draft.ethics_considerations_draft\n};\n\nreturn {\n  json: {\n    project: data.project,\n    ethics: ethics\n  }\n};"
+      },
+      "name": "Parse Ethics Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2650, 300],
+      "id": "parse-ethics-draft"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "prompt": "=You are an expert in research data management planning.\n\nBased on the data governance plan, generate a comprehensive Data Management Plan document:\n\n**Data Governance:**\n{{ JSON.stringify($json.ethics.data_governance, null, 2) }}\n\n**Project Context:**\n{{ JSON.stringify($json.project.intake, null, 2) }}\n\n**Methodology:**\n{{ JSON.stringify($json.project.methodology.data_collection, null, 2) }}\n\nGenerate a Data Management Plan following best practices (e.g., DMP Template from NHMRC):\n\nProvide response in JSON format:\n{\n  \"data_management_plan\": {\n    \"data_description\": {\n      \"data_types\": \"Description of data types to be collected\",\n      \"data_formats\": \"File formats and standards\",\n      \"data_volume\": \"Estimated data volume\",\n      \"metadata_standards\": \"Metadata standards to be used\"\n    },\n    \"data_collection\": {\n      \"collection_methods\": \"How data will be collected\",\n      \"quality_assurance\": \"Quality control procedures\",\n      \"version_control\": \"How versions will be managed\"\n    },\n    \"data_storage_backup\": {\n      \"primary_storage\": \"Primary storage location and medium\",\n      \"backup_strategy\": \"Backup frequency, location, and testing\",\n      \"security_measures\": \"Encryption, access controls, physical security\"\n    },\n    \"data_security\": {\n      \"access_control\": \"Who has access and how access is controlled\",\n      \"deidentification\": \"Deidentification methods\",\n      \"risk_mitigation\": \"Security risk mitigation strategies\"\n    },\n    \"privacy_ethics\": {\n      \"legal_compliance\": \"Privacy Act, health records legislation compliance\",\n      \"ethics_approval\": \"Ethics approval details\",\n      \"consent\": \"Consent for data collection and use\"\n    },\n    \"data_sharing\": {\n      \"sharing_plans\": \"Whether and how data will be shared\",\n      \"access_conditions\": \"Conditions for data access\",\n      \"embargo_period\": \"Embargo period if applicable\"\n    },\n    \"data_retention_disposal\": {\n      \"retention_period\": \"How long data will be retained\",\n      \"retention_justification\": \"Legal/regulatory requirements\",\n      \"disposal_method\": \"Secure disposal procedures\"\n    },\n    \"roles_responsibilities\": [\n      {\n        \"role\": \"Role/position\",\n        \"responsibility\": \"Data management responsibilities\"\n      }\n    ],\n    \"budget\": {\n      \"storage_costs\": \"Estimated storage costs\",\n      \"security_costs\": \"Security infrastructure costs\",\n      \"personnel_costs\": \"Data management personnel costs\"\n    }\n  }\n}\n\nReturn ONLY the JSON object, no additional text."
+      },
+      "name": "Generate Data Management Plan",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [2850, 300],
+      "id": "generate-dmp",
+      "credentials": {
+        "anthropicApi": {
+          "id": "1",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Compile Ethics Evaluation Node\n// Combine all ethics components into final structure\n\nconst data = $input.first().json;\nconst dmpRaw = $input.item(0).json.output;\nconst dmp = JSON.parse(dmpRaw);\n\n// Complete ethics evaluation structure\nconst completeEthics = {\n  ...data.ethics,\n  data_management_plan: dmp.data_management_plan,\n  completed_at: new Date().toISOString()\n};\n\n// Generate summary for notification\nconst summary = {\n  pathway: completeEthics.ethics_pathway.pathway_type,\n  requires_hrec: completeEthics.ethics_pathway.requires_hrec,\n  overall_risk: completeEthics.risk_assessment.overall_level,\n  consent_type: completeEthics.consent_requirements.consent_type,\n  estimated_timeline: completeEthics.ethics_pathway.estimated_timeline_weeks,\n  checklist_items: completeEthics.governance_checklist.reduce((sum, cat) => sum + cat.items.length, 0),\n  high_risk_domains: completeEthics.risk_assessment.risk_domains\n    .filter(d => d.level === 'HIGH' || d.level === 'MEDIUM')\n    .map(d => d.domain)\n};\n\n// Update project record\nconst updatedProject = {\n  ...data.project,\n  ethics: completeEthics,\n  status: 'ETHICS_COMPLETE',\n  updated_at: new Date().toISOString()\n};\n\nreturn {\n  json: {\n    ...updatedProject,\n    ethics_summary: summary\n  }\n};"
+      },
+      "name": "Compile Ethics Evaluation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3050, 300],
+      "id": "compile-ethics-evaluation"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE projects\nSET \n  ethics = $1,\n  status = $2,\n  updated_at = $3\nWHERE id = $4\nRETURNING *;",
+        "additionalFields": {
+          "queryParameters": "={{ JSON.stringify([\n  JSON.stringify($json.ethics),\n  $json.status,\n  $json.updated_at,\n  $json.id\n]) }}"
+        }
+      },
+      "name": "Store Ethics in PostgreSQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [3250, 300],
+      "id": "store-ethics",
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE projects\nSET status = $1, updated_at = $2\nWHERE id = $3\nRETURNING *;",
+        "additionalFields": {
+          "queryParameters": "={{ JSON.stringify([\n  'ETHICS_COMPLETE',\n  new Date().toISOString(),\n  $json.id\n]) }}"
+        }
+      },
+      "name": "Update Project Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [3450, 300],
+      "id": "update-project-status",
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO audit_log (project_id, timestamp, action, actor, details, previous_state, new_state)\nVALUES ($1, $2, $3, $4, $5, $6, $7);",
+        "additionalFields": {
+          "queryParameters": "={{ JSON.stringify([\n  $json.id,\n  new Date().toISOString(),\n  'ETHICS_COMPLETED',\n  'system',\n  JSON.stringify({ \n    stage: 'ethics',\n    pathway: $json.ethics_summary.pathway,\n    requires_hrec: $json.ethics_summary.requires_hrec,\n    overall_risk: $json.ethics_summary.overall_risk,\n    estimated_timeline_weeks: $json.ethics_summary.estimated_timeline,\n    checklist_items: $json.ethics_summary.checklist_items\n  }),\n  JSON.stringify({ status: 'METHODOLOGY_COMPLETE' }),\n  JSON.stringify({ status: 'ETHICS_COMPLETE' })\n]) }}"
+        }
+      },
+      "name": "Create Audit Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [3450, 450],
+      "id": "create-audit-log",
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "unit": "hours",
+        "amount": 168,
+        "resume": "webhook",
+        "options": {
+          "webhookSuffix": "={{ 'checkpoint-ethics-' + $json.id }}"
+        }
+      },
+      "name": "Checkpoint for User Review",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [3650, 300],
+      "id": "checkpoint-ethics",
+      "webhookId": "ethics-checkpoint"
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "fromEmail": "={{ $env.SMTP_FROM }}",
+        "toEmail": "={{ $json.intake.principal_investigator.email }}",
+        "subject": "QI/Research Pipeline - Ethics Stage Complete - Review Required",
+        "emailFormat": "html",
+        "message": "=<html>\n<body>\n<h2>Ethics Stage Complete - Review Required</h2>\n<p>Dear {{ $json.intake.principal_investigator.name }},</p>\n\n<p>The ethics evaluation stage for your project has been completed. Please review the ethics pathway and governance requirements:</p>\n\n<h3>Project Details</h3>\n<ul>\n  <li><strong>Project ID:</strong> {{ $json.id }}</li>\n  <li><strong>Title:</strong> {{ $json.intake.project_title }}</li>\n</ul>\n\n<h3>Ethics Evaluation Summary</h3>\n<ul>\n  <li><strong>Ethics Pathway:</strong> {{ $json.ethics_summary.pathway }}</li>\n  <li><strong>HREC Approval Required:</strong> {{ $json.ethics_summary.requires_hrec ? 'Yes' : 'No' }}</li>\n  <li><strong>Overall Risk Level:</strong> {{ $json.ethics_summary.overall_risk }}</li>\n  <li><strong>Consent Type:</strong> {{ $json.ethics_summary.consent_type }}</li>\n  <li><strong>Estimated Timeline:</strong> {{ $json.ethics_summary.estimated_timeline }} weeks</li>\n  <li><strong>Governance Checklist Items:</strong> {{ $json.ethics_summary.checklist_items }}</li>\n</ul>\n\n{{ $json.ethics_summary.high_risk_domains.length > 0 ? '<h3>Risk Areas Requiring Attention</h3><ul>' + $json.ethics_summary.high_risk_domains.map(d => '<li>' + d + '</li>').join('') + '</ul>' : '' }}\n\n<h3>Next Steps</h3>\n<p>The following outputs have been prepared for your review:</p>\n<ul>\n  <li>Ethics pathway determination</li>\n  <li>Comprehensive risk assessment</li>\n  <li>Consent requirements and procedures</li>\n  <li>Data governance and privacy plan</li>\n  <li>Data Management Plan</li>\n  <li>Site-specific requirements</li>\n  <li>Governance checklist for ethics submission</li>\n  <li>Draft ethics section for protocol</li>\n</ul>\n\n<p>Please review all ethics materials and approve to proceed:</p>\n\n<p><a href=\"{{ $env.WEBHOOK_URL }}/checkpoint-ethics-{{ $json.id }}?action=approve\">Approve Ethics Evaluation</a></p>\n<p><a href=\"{{ $env.WEBHOOK_URL }}/checkpoint-ethics-{{ $json.id }}?action=reject\">Request Changes</a></p>\n\n<p>You can view the complete ethics evaluation, Data Management Plan, and governance checklist in the project dashboard.</p>\n\n<p>Best regards,<br>\nQI/Research Pipeline Team</p>\n</body>\n</html>"
+      },
+      "name": "Send Notification Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [3650, 450],
+      "id": "send-notification",
+      "credentials": {
+        "smtp": {
+          "id": "1",
+          "name": "SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({\n  success: true,\n  project_id: $json.id,\n  status: $json.status,\n  ethics_summary: $json.ethics_summary,\n  message: 'Ethics stage completed successfully - awaiting review'\n}) }}"
+      },
+      "name": "Return Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [3850, 300],
+      "id": "return-result"
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Determine Ethics Pathway",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determine Ethics Pathway": {
+      "main": [
+        [
+          {
+            "node": "Parse Ethics Pathway",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Ethics Pathway": {
+      "main": [
+        [
+          {
+            "node": "Conduct Risk Assessment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conduct Risk Assessment": {
+      "main": [
+        [
+          {
+            "node": "Parse Risk Assessment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Risk Assessment": {
+      "main": [
+        [
+          {
+            "node": "Determine Consent Requirements",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determine Consent Requirements": {
+      "main": [
+        [
+          {
+            "node": "Parse Consent Requirements",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Consent Requirements": {
+      "main": [
+        [
+          {
+            "node": "Plan Data Governance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan Data Governance": {
+      "main": [
+        [
+          {
+            "node": "Parse Data Governance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Data Governance": {
+      "main": [
+        [
+          {
+            "node": "Identify Site Requirements",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Identify Site Requirements": {
+      "main": [
+        [
+          {
+            "node": "Generate Governance Checklist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Governance Checklist": {
+      "main": [
+        [
+          {
+            "node": "Generate Ethics Considerations Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Ethics Considerations Draft": {
+      "main": [
+        [
+          {
+            "node": "Parse Ethics Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Ethics Draft": {
+      "main": [
+        [
+          {
+            "node": "Generate Data Management Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Data Management Plan": {
+      "main": [
+        [
+          {
+            "node": "Compile Ethics Evaluation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compile Ethics Evaluation": {
+      "main": [
+        [
+          {
+            "node": "Store Ethics in PostgreSQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Ethics in PostgreSQL": {
+      "main": [
+        [
+          {
+            "node": "Update Project Status",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Create Audit Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Project Status": {
+      "main": [
+        [
+          {
+            "node": "Checkpoint for User Review",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Notification Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Checkpoint for User Review": {
+      "main": [
+        [
+          {
+            "node": "Return Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "Australia/Brisbane",
+    "executionOrder": "v1"
+  },
+  "staticData": null
+}

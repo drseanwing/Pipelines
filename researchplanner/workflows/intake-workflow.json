@@ -1,0 +1,221 @@
+{
+  "name": "QI-Research Pipeline: Intake Stage",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "intake-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate intake data\nconst intake = $input.first().json;\n\nconst requiredFields = [\n  'project_title',\n  'project_type',\n  'concept_description',\n  'clinical_problem',\n  'target_population',\n  'setting',\n  'principal_investigator',\n  'intended_outcomes'\n];\n\nconst errors = [];\n\nfor (const field of requiredFields) {\n  if (!intake[field] || (typeof intake[field] === 'string' && intake[field].trim() === '')) {\n    errors.push(`Missing required field: ${field}`);\n  }\n}\n\n// Validate project_type enum\nconst validProjectTypes = ['QI', 'RESEARCH', 'HYBRID'];\nif (intake.project_type && !validProjectTypes.includes(intake.project_type)) {\n  errors.push(`Invalid project_type: ${intake.project_type}. Must be one of: ${validProjectTypes.join(', ')}`);\n}\n\n// Validate concept_description length (500-2000 chars)\nif (intake.concept_description) {\n  const len = intake.concept_description.length;\n  if (len < 100) {\n    errors.push(`concept_description is too short (${len} chars). Minimum recommended: 100 characters`);\n  }\n  if (len > 5000) {\n    errors.push(`concept_description is too long (${len} chars). Maximum: 5000 characters`);\n  }\n}\n\n// Validate principal_investigator structure\nif (intake.principal_investigator) {\n  const piRequired = ['name', 'role', 'institution', 'email'];\n  for (const field of piRequired) {\n    if (!intake.principal_investigator[field]) {\n      errors.push(`Missing principal_investigator.${field}`);\n    }\n  }\n}\n\n// Validate grant_target enum if provided\nif (intake.grant_target) {\n  const validGrantTypes = ['EMF_JUMPSTART', 'EMF_LEADING_EDGE', 'EMF_TRANSLATED', 'INTERNAL', 'OTHER'];\n  if (!validGrantTypes.includes(intake.grant_target)) {\n    errors.push(`Invalid grant_target: ${intake.grant_target}`);\n  }\n}\n\nif (errors.length > 0) {\n  throw new Error(`Validation failed: ${errors.join('; ')}`);\n}\n\n// Generate project ID\nconst projectId = 'PROJ-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substring(2, 7).toUpperCase();\n\nreturn [{\n  json: {\n    project_id: projectId,\n    intake: intake,\n    validation_status: 'PASSED',\n    validated_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "validate-input",
+      "name": "Validate Input Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "maxTokens": 2048,
+          "temperature": 0.3
+        },
+        "messages": {
+          "messageValues": [
+            {
+              "message": "={{ `You are an expert in healthcare research methodology and quality improvement. Analyse the following project concept and classify it appropriately.\n\n## Project Concept\n${$json.intake.concept_description}\n\n## Clinical Problem\n${$json.intake.clinical_problem}\n\n## Intended Outcomes\n${$json.intake.intended_outcomes}\n\n## Target Population\n${$json.intake.target_population}\n\n## Setting\n${$json.intake.setting}\n\n## Declared Project Type\n${$json.intake.project_type}\n\n## Classification Criteria\n\n### Quality Improvement (QI)\n- Primary aim is to improve local processes, outcomes, or patient experience\n- No intention to generate generalisable knowledge\n- Uses established QI methodologies (PDSA, Lean, etc.)\n- Results intended for local use and improvement\n\n### Research\n- Primary aim is to generate new generalisable knowledge\n- Systematic investigation designed to develop or contribute to knowledge\n- Results intended for publication and broader application\n- May involve experimental manipulation or control groups\n\n### Hybrid\n- Elements of both QI and research\n- Local improvement with secondary aim of generalisation\n- May start as QI with potential to become research\n\n## Task\n1. Classify this project as QI, RESEARCH, or HYBRID\n2. Provide confidence score (0-1)\n3. Explain your reasoning\n4. Suggest appropriate study designs based on the project type\n5. Identify the applicable reporting guideline\n6. List applicable ethics/governance frameworks\n\nRespond ONLY with valid JSON in this exact format:\n{\n  \"project_type\": \"QI|RESEARCH|HYBRID\",\n  \"confidence\": 0.0-1.0,\n  \"reasoning\": \"detailed explanation\",\n  \"suggested_designs\": [\"design1\", \"design2\"],\n  \"reporting_guideline\": \"SQUIRE|CONSORT|STROBE|etc\",\n  \"ethics_framework\": \"QI_REGISTRATION|LOW_RISK_RESEARCH|FULL_HREC_REVIEW\",\n  \"governance_requirements\": [\"requirement1\", \"requirement2\"],\n  \"alignment_with_declared_type\": true|false,\n  \"alignment_notes\": \"notes if declared type differs from analysis\"\n}` }}"
+            }
+          ]
+        }
+      },
+      "id": "classify-project",
+      "name": "LLM: Classify Project Type",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [690, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credentials",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse LLM classification response and build project structure\nconst input = $input.first().json;\nconst llmResponse = $('LLM: Classify Project Type').first().json.message.content;\n\n// Parse the LLM JSON response\nlet classification;\ntry {\n  // Extract JSON from response (handle markdown code blocks if present)\n  let jsonStr = llmResponse;\n  const jsonMatch = llmResponse.match(/```json\\n?([\\s\\S]*?)\\n?```/);\n  if (jsonMatch) {\n    jsonStr = jsonMatch[1];\n  }\n  classification = JSON.parse(jsonStr);\n} catch (e) {\n  throw new Error(`Failed to parse LLM classification response: ${e.message}`);\n}\n\n// Get intake from the validation step\nconst validationOutput = $('Validate Input Data').first().json;\n\n// Determine frameworks based on classification\nconst frameworks = {\n  reporting_guideline: classification.reporting_guideline,\n  ethics_framework: classification.ethics_framework,\n  governance_requirements: classification.governance_requirements || []\n};\n\n// Add standard governance requirements based on classification\nif (classification.project_type === 'QI') {\n  frameworks.governance_requirements.push('Unit Director Approval');\n  frameworks.governance_requirements.push('QI Registration');\n} else if (classification.project_type === 'RESEARCH') {\n  frameworks.governance_requirements.push('Research Governance Office Notification');\n  frameworks.governance_requirements.push('NHMRC National Statement Compliance');\n  if (classification.ethics_framework === 'FULL_HREC_REVIEW') {\n    frameworks.governance_requirements.push('HREC Application');\n    frameworks.governance_requirements.push('Site-Specific Assessment');\n  }\n}\n\n// Build complete project record\nconst project = {\n  id: validationOutput.project_id,\n  status: 'INTAKE_COMPLETE',\n  created_at: new Date().toISOString(),\n  updated_at: new Date().toISOString(),\n  \n  intake: validationOutput.intake,\n  \n  classification: {\n    project_type: classification.project_type,\n    confidence: classification.confidence,\n    reasoning: classification.reasoning,\n    suggested_designs: classification.suggested_designs,\n    alignment_with_declared_type: classification.alignment_with_declared_type,\n    alignment_notes: classification.alignment_notes || null\n  },\n  \n  frameworks: frameworks,\n  \n  checkpoints: {\n    intake_approved: false,\n    research_approved: false,\n    methodology_approved: false,\n    ethics_approved: false,\n    documents_approved: false\n  },\n  \n  audit_log: [{\n    timestamp: new Date().toISOString(),\n    action: 'PROJECT_CREATED',\n    actor: 'intake_agent',\n    details: {\n      source: 'intake_workflow',\n      classification_confidence: classification.confidence\n    }\n  }]\n};\n\n// Generate research brief for next stage\nconst researchBrief = {\n  project_id: project.id,\n  clinical_problem: validationOutput.intake.clinical_problem,\n  target_population: validationOutput.intake.target_population,\n  setting: validationOutput.intake.setting,\n  intended_outcomes: validationOutput.intake.intended_outcomes,\n  project_type: classification.project_type,\n  suggested_designs: classification.suggested_designs,\n  reporting_guideline: classification.reporting_guideline\n};\n\nreturn [{\n  json: {\n    project: project,\n    research_brief: researchBrief,\n    classification_report: classification\n  }\n}];"
+      },
+      "id": "build-project",
+      "name": "Build Project Structure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [910, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "projects",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.project.id }}",
+            "status": "={{ $json.project.status }}",
+            "created_at": "={{ $json.project.created_at }}",
+            "updated_at": "={{ $json.project.updated_at }}",
+            "intake": "={{ JSON.stringify($json.project.intake) }}",
+            "classification": "={{ JSON.stringify($json.project.classification) }}",
+            "frameworks": "={{ JSON.stringify($json.project.frameworks) }}",
+            "checkpoints": "={{ JSON.stringify($json.project.checkpoints) }}",
+            "owner_id": "={{ $json.project.intake.principal_investigator.email }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "store-project",
+      "name": "Store Project in Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1130, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "QI Pipeline Database"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "audit_log",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "project_id": "={{ $json.project.id }}",
+            "timestamp": "={{ new Date().toISOString() }}",
+            "action": "PROJECT_CREATED",
+            "actor": "intake_workflow",
+            "details": "={{ JSON.stringify({ stage: 'intake', classification: $json.classification_report }) }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "log-audit",
+      "name": "Log Audit Entry",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1350, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "QI Pipeline Database"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare final output for return to master workflow\nconst buildOutput = $('Build Project Structure').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    project_id: buildOutput.project.id,\n    status: buildOutput.project.status,\n    \n    // Classification results\n    classification: {\n      project_type: buildOutput.project.classification.project_type,\n      confidence: buildOutput.project.classification.confidence,\n      reasoning: buildOutput.project.classification.reasoning,\n      suggested_designs: buildOutput.project.classification.suggested_designs,\n      reporting_guideline: buildOutput.project.frameworks.reporting_guideline,\n      ethics_framework: buildOutput.project.frameworks.ethics_framework\n    },\n    \n    // Framework requirements\n    frameworks: buildOutput.project.frameworks,\n    \n    // Research brief for next stage\n    research_brief: buildOutput.research_brief,\n    \n    // Full project record\n    project: buildOutput.project,\n    \n    // Workflow metadata\n    workflow_metadata: {\n      stage: 'intake',\n      completed_at: new Date().toISOString(),\n      next_stage: 'research',\n      requires_checkpoint: true,\n      checkpoint_items: [\n        'Confirm project classification (QI vs Research vs Hybrid)',\n        'Validate team composition meets requirements',\n        'Approve research direction and scope',\n        'Identify any known literature or prior work'\n      ]\n    }\n  }\n}];"
+      },
+      "id": "prepare-output",
+      "name": "Prepare Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1570, 300]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Input Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input Data": {
+      "main": [
+        [
+          {
+            "node": "LLM: Classify Project Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM: Classify Project Type": {
+      "main": [
+        [
+          {
+            "node": "Build Project Structure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Project Structure": {
+      "main": [
+        [
+          {
+            "node": "Store Project in Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Project in Database": {
+      "main": [
+        [
+          {
+            "node": "Log Audit Entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Audit Entry": {
+      "main": [
+        [
+          {
+            "node": "Prepare Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "qi-research-pipeline",
+      "createdAt": "2026-01-27T00:00:00.000Z",
+      "updatedAt": "2026-01-27T00:00:00.000Z"
+    },
+    {
+      "name": "stage-1-intake",
+      "createdAt": "2026-01-27T00:00:00.000Z",
+      "updatedAt": "2026-01-27T00:00:00.000Z"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2026-01-27T00:00:00.000Z",
+  "versionId": "1"
+}

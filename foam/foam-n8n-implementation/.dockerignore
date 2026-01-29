@@ -1,0 +1,75 @@
+# =============================================================================
+# FOAM N8N Docker Build - Ignore File
+# =============================================================================
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Development files
+*.md
+!README.md
+!IMPLEMENTATION_FRAMEWORK.md
+!CHANGELOG.md
+.env
+.env.*
+!.env.example
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Node modules (will be installed fresh in container)
+node_modules/
+tests/node_modules/
+
+# Log files
+*.log
+logs/
+
+# Backup files
+backups/
+*.bak
+*.backup
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Docker-specific (don't copy docker-compose files into image)
+docker-compose*.yml
+!docker/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Testing artifacts
+coverage/
+.nyc_output/
+
+# Local data directories
+data/
+
+# SSL certificates (sensitive)
+*.pem
+*.key
+*.crt
+acme.json
+traefik/
+
+# Runtime files
+*.pid
+*.sock
+
+# Claude/AI artifacts
+.claude/
+compass_artifact_*

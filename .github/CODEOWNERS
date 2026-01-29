@@ -1,0 +1,18 @@
+# =============================================================================
+# CODEOWNERS - Automatic review assignment
+# =============================================================================
+
+# Default owners for everything
+* @your-username
+
+# CI/CD requires senior review
+.github/workflows/ @your-username
+docker/ @your-username
+
+# Security-sensitive files
+SECURITY.md @your-username
+.claude/settings.json @your-username
+
+# Documentation
+docs/ @your-username
+*.md @your-username

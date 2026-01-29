@@ -1,0 +1,424 @@
+{
+  "name": "SLR_Error_Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "error-trigger-node",
+      "name": "Error_Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract error details from the execution context\nconst workflowName = $input.all()[0].json.workflow?.name || 'Unknown';\nconst executionId = $input.all()[0].json.execution?.id || null;\nconst errorMessage = $input.all()[0].json.error?.message || 'Unknown error';\nconst errorStack = $input.all()[0].json.error?.stack || '';\nconst nodeName = $input.all()[0].json.node?.name || 'Unknown';\n\n// Try to extract review_id from workflow context or input data\nlet reviewId = null;\nif ($input.all()[0].json.workflow?.staticData?.review_id) {\n  reviewId = $input.all()[0].json.workflow.staticData.review_id;\n} else if ($input.all()[0].json.execution?.data?.review_id) {\n  reviewId = $input.all()[0].json.execution.data.review_id;\n}\n\nreturn {\n  workflow_name: workflowName,\n  execution_id: executionId,\n  review_id: reviewId,\n  error_message: errorMessage,\n  error_stack: errorStack,\n  failed_node: nodeName,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "extract-error-info-node",
+      "name": "Extract_Error_Info",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT *\nFROM workflow_state\nWHERE execution_id = $1\nORDER BY updated_at DESC\nLIMIT 1",
+        "options": {
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "execution_id",
+                "value": "={{ $json.execution_id }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "load-checkpoint-node",
+      "name": "Load_Checkpoint",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [650, 300],
+      "credentials": {
+        "postgres": {
+          "id": "slr_postgres_credentials",
+          "name": "SLR PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Classify error type based on error message patterns\nconst errorMessage = $input.all()[0].json.error_message.toLowerCase();\nconst errorStack = $input.all()[0].json.error_stack.toLowerCase();\n\nlet errorType = 'FATAL';\nlet retryable = false;\nlet reasoning = '';\n\n// TRANSIENT errors - worth retrying\nif (\n  errorMessage.includes('timeout') ||\n  errorMessage.includes('etimedout') ||\n  errorMessage.includes('econnrefused') ||\n  errorMessage.includes('enotfound') ||\n  errorMessage.includes('network') ||\n  errorMessage.includes('rate limit') ||\n  errorMessage.includes('429') ||\n  errorMessage.includes('503') ||\n  errorMessage.includes('502')\n) {\n  errorType = 'TRANSIENT';\n  retryable = true;\n  reasoning = 'Network, timeout, or rate limit error - can retry with backoff';\n}\n// RECOVERABLE errors - need rollback\nelse if (\n  errorMessage.includes('validation') ||\n  errorMessage.includes('invalid') ||\n  errorMessage.includes('duplicate') ||\n  errorMessage.includes('constraint') ||\n  errorMessage.includes('partial') ||\n  errorMessage.includes('incomplete')\n) {\n  errorType = 'RECOVERABLE';\n  retryable = true;\n  reasoning = 'Data validation or partial failure - can rollback and retry';\n}\n// FATAL errors - stop execution\nelse if (\n  errorMessage.includes('auth') ||\n  errorMessage.includes('unauthorized') ||\n  errorMessage.includes('forbidden') ||\n  errorMessage.includes('403') ||\n  errorMessage.includes('401') ||\n  errorMessage.includes('schema') ||\n  errorMessage.includes('syntax error') ||\n  errorMessage.includes('critical')\n) {\n  errorType = 'FATAL';\n  retryable = false;\n  reasoning = 'Authentication, schema, or critical error - cannot auto-recover';\n}\n\nreturn {\n  ...$input.all()[0].json,\n  error_type: errorType,\n  retryable: retryable,\n  classification_reasoning: reasoning\n};"
+      },
+      "id": "classify-error-node",
+      "name": "Classify_Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.error_type }}",
+                    "rightValue": "TRANSIENT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "transient"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.error_type }}",
+                    "rightValue": "RECOVERABLE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "recoverable"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.error_type }}",
+                    "rightValue": "FATAL",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "fatal"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "route-recovery-node",
+      "name": "Route_Recovery",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle transient errors - increment error count and schedule retry\nconst currentErrorCount = $input.all()[0].json.error_count || 0;\nconst newErrorCount = currentErrorCount + 1;\nconst maxRetries = 3;\n\n// Exponential backoff: 1min, 5min, 15min\nconst retryDelays = [60, 300, 900];\nconst retryDelaySeconds = retryDelays[Math.min(newErrorCount - 1, retryDelays.length - 1)];\n\nconst shouldRetry = newErrorCount <= maxRetries;\n\nreturn {\n  ...$input.all()[0].json,\n  new_error_count: newErrorCount,\n  retry_delay_seconds: retryDelaySeconds,\n  should_retry: shouldRetry,\n  retry_scheduled_at: shouldRetry ? new Date(Date.now() + retryDelaySeconds * 1000).toISOString() : null,\n  recovery_action: shouldRetry ? 'RETRY_SCHEDULED' : 'MAX_RETRIES_EXCEEDED'\n};"
+      },
+      "id": "handle-transient-node",
+      "name": "Handle_Transient",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle recoverable errors - rollback to last checkpoint\nconst checkpoint = $input.all()[0].json;\n\n// Mark items from last_processed_id onwards for retry\nconst itemsToRetry = checkpoint.items_processed || 0;\n\nreturn {\n  ...$input.all()[0].json,\n  recovery_action: 'ROLLBACK_TO_CHECKPOINT',\n  rollback_to_id: checkpoint.last_processed_id,\n  items_to_reprocess: itemsToRetry,\n  new_error_count: (checkpoint.error_count || 0) + 1\n};"
+      },
+      "id": "handle-recoverable-node",
+      "name": "Handle_Recoverable",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle fatal errors - mark workflow as failed\nreturn {\n  ...$input.all()[0].json,\n  recovery_action: 'WORKFLOW_FAILED',\n  requires_manual_intervention: true,\n  new_error_count: ($input.all()[0].json.error_count || 0) + 1\n};"
+      },
+      "id": "handle-fatal-node",
+      "name": "Handle_Fatal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE workflow_state\nSET\n  error_count = $1,\n  error_info = jsonb_build_object(\n    'error_type', $2,\n    'error_message', $3,\n    'failed_node', $4,\n    'recovery_action', $5,\n    'timestamp', $6\n  ),\n  updated_at = NOW()\nWHERE execution_id = $7\nRETURNING *",
+        "options": {
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "error_count",
+                "value": "={{ $json.new_error_count }}"
+              },
+              {
+                "name": "error_type",
+                "value": "={{ $json.error_type }}"
+              },
+              {
+                "name": "error_message",
+                "value": "={{ $json.error_message }}"
+              },
+              {
+                "name": "failed_node",
+                "value": "={{ $json.failed_node }}"
+              },
+              {
+                "name": "recovery_action",
+                "value": "={{ $json.recovery_action }}"
+              },
+              {
+                "name": "timestamp",
+                "value": "={{ $json.timestamp }}"
+              },
+              {
+                "name": "execution_id",
+                "value": "={{ $json.execution_id }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "update-checkpoint-error-node",
+      "name": "Update_Checkpoint_Error",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "slr_postgres_credentials",
+          "name": "SLR PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO audit_log (\n  review_id,\n  execution_id,\n  event_type,\n  event_data,\n  severity\n)\nVALUES (\n  $1,\n  $2,\n  'ERROR',\n  $3,\n  $4\n)",
+        "options": {
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "review_id",
+                "value": "={{ $json.review_id }}"
+              },
+              {
+                "name": "execution_id",
+                "value": "={{ $json.execution_id }}"
+              },
+              {
+                "name": "event_data",
+                "value": "={{ JSON.stringify({\n  workflow_name: $json.workflow_name,\n  error_type: $json.error_type,\n  error_message: $json.error_message,\n  failed_node: $json.failed_node,\n  recovery_action: $json.recovery_action,\n  error_count: $json.new_error_count\n}) }}"
+              },
+              {
+                "name": "severity",
+                "value": "={{ $json.error_type === 'FATAL' ? 'CRITICAL' : ($json.error_type === 'RECOVERABLE' ? 'WARNING' : 'INFO') }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "log-error-node",
+      "name": "Log_Error",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1650, 300],
+      "credentials": {
+        "postgres": {
+          "id": "slr_postgres_credentials",
+          "name": "SLR PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "notification-title",
+              "name": "title",
+              "value": "={{ 'SLR Workflow Error: ' + $json.error_type }}",
+              "type": "string"
+            },
+            {
+              "id": "notification-message",
+              "name": "message",
+              "value": "={{ 'Workflow: ' + $json.workflow_name + '\\nExecution: ' + $json.execution_id + '\\nError: ' + $json.error_message + '\\nRecovery: ' + $json.recovery_action }}",
+              "type": "string"
+            },
+            {
+              "id": "notification-severity",
+              "name": "severity",
+              "value": "={{ $json.error_type === 'FATAL' ? 'critical' : ($json.error_type === 'RECOVERABLE' ? 'warning' : 'info') }}",
+              "type": "string"
+            },
+            {
+              "id": "notification-timestamp",
+              "name": "timestamp",
+              "value": "={{ $json.timestamp }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "send-notification-node",
+      "name": "Send_Notification",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1850, 300],
+      "notes": "Webhook placeholder for error notifications - configure with Slack, email, or monitoring service"
+    }
+  ],
+  "connections": {
+    "Error_Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract_Error_Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract_Error_Info": {
+      "main": [
+        [
+          {
+            "node": "Load_Checkpoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load_Checkpoint": {
+      "main": [
+        [
+          {
+            "node": "Classify_Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify_Error": {
+      "main": [
+        [
+          {
+            "node": "Route_Recovery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route_Recovery": {
+      "main": [
+        [
+          {
+            "node": "Handle_Transient",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle_Recoverable",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle_Fatal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle_Transient": {
+      "main": [
+        [
+          {
+            "node": "Update_Checkpoint_Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle_Recoverable": {
+      "main": [
+        [
+          {
+            "node": "Update_Checkpoint_Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle_Fatal": {
+      "main": [
+        [
+          {
+            "node": "Update_Checkpoint_Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update_Checkpoint_Error": {
+      "main": [
+        [
+          {
+            "node": "Log_Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log_Error": {
+      "main": [
+        [
+          {
+            "node": "Send_Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "id": "slr-workflows",
+      "name": "SLR Workflows"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2026-01-25T00:00:00.000Z",
+  "versionId": "1.0.0",
+  "active": false
+}

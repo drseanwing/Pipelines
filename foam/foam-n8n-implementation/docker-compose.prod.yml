@@ -1,0 +1,422 @@
+# =============================================================================
+# FOAM N8N Multi-LLM Orchestration - Production Configuration
+# =============================================================================
+# This is the PRODUCTION docker-compose configuration with:
+# - Traefik reverse proxy with automatic Let's Encrypt SSL
+# - Enhanced security (network isolation, rate limiting, security headers)
+# - Health checks for all services
+# - Resource limits and log rotation
+# - Redis for N8N queue mode (horizontal scaling)
+# - No direct port exposure (all traffic through Traefik)
+#
+# Prerequisites:
+# 1. Copy .env.example to .env and configure all variables
+# 2. Set DOMAIN and LETSENCRYPT_EMAIL in .env
+# 3. Ensure DNS points to your server
+# 4. Create traefik directory: mkdir -p ./traefik
+# 5. Create acme.json: touch ./traefik/acme.json && chmod 600 ./traefik/acme.json
+#
+# For deployment instructions, see docs/deployment.md
+# =============================================================================
+
+version: '3.8'
+
+networks:
+  # External network - exposed to internet via Traefik
+  web:
+    external: false
+  # Internal network - database and cache only
+  internal:
+    external: false
+
+services:
+  # ===========================================================================
+  # Traefik - Reverse Proxy with Automatic SSL
+  # ===========================================================================
+  traefik:
+    image: traefik:v2.10
+    container_name: foam_traefik
+    restart: always
+    command:
+      # API and Dashboard
+      - --api.dashboard=true
+      - --api.insecure=false
+      # Entry points
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      # HTTP to HTTPS redirect
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      # Docker provider
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=web
+      # Let's Encrypt
+      - --certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL}
+      - --certificatesresolvers.letsencrypt.acme.storage=/acme.json
+      - --certificatesresolvers.letsencrypt.acme.tlschallenge=true
+      # Logging
+      - --log.level=INFO
+      - --accesslog=true
+      - --accesslog.filepath=/var/log/traefik/access.log
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - web
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/acme.json:/acme.json
+      - ./traefik/logs:/var/log/traefik
+    labels:
+      # Traefik dashboard
+      - traefik.enable=true
+      - traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN}`)
+      - traefik.http.routers.traefik.entrypoints=websecure
+      - traefik.http.routers.traefik.tls.certresolver=letsencrypt
+      - traefik.http.routers.traefik.service=api@internal
+      - traefik.http.routers.traefik.middlewares=traefik-auth
+      # Basic auth for dashboard (use htpasswd to generate)
+      - traefik.http.middlewares.traefik-auth.basicauth.users=${TRAEFIK_BASIC_AUTH}
+      # Security headers middleware
+      - traefik.http.middlewares.security-headers.headers.customResponseHeaders.X-Robots-Tag=noindex,nofollow,nosnippet,noarchive,notranslate,noimageindex
+      - traefik.http.middlewares.security-headers.headers.sslRedirect=true
+      - traefik.http.middlewares.security-headers.headers.stsSeconds=31536000
+      - traefik.http.middlewares.security-headers.headers.stsIncludeSubdomains=true
+      - traefik.http.middlewares.security-headers.headers.stsPreload=true
+      - traefik.http.middlewares.security-headers.headers.forceSTSHeader=true
+      - traefik.http.middlewares.security-headers.headers.frameDeny=true
+      - traefik.http.middlewares.security-headers.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.security-headers.headers.browserXssFilter=true
+      - traefik.http.middlewares.security-headers.headers.referrerPolicy=strict-origin-when-cross-origin
+      # Rate limiting middleware
+      - traefik.http.middlewares.rate-limit.ratelimit.average=100
+      - traefik.http.middlewares.rate-limit.ratelimit.burst=50
+      - traefik.http.middlewares.rate-limit.ratelimit.period=1m
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # N8N - Workflow Automation
+  # ===========================================================================
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: foam_n8n
+    restart: always
+    networks:
+      - web
+      - internal
+    environment:
+      # Authentication
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
+      # Host configuration
+      - N8N_HOST=${DOMAIN}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=https://${DOMAIN}/
+      # Production settings
+      - NODE_ENV=production
+      - GENERIC_TIMEZONE=${TIMEZONE:-UTC}
+      - N8N_LOG_LEVEL=info
+      - N8N_LOG_OUTPUT=console
+      # Database configuration
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=n8n
+      - DB_POSTGRESDB_USER=${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      # Queue mode for production scaling
+      - QUEUE_BULL_REDIS_HOST=redis
+      - QUEUE_BULL_REDIS_PORT=6379
+      - QUEUE_BULL_REDIS_DB=0
+      - EXECUTIONS_MODE=queue
+      - EXECUTIONS_DATA_SAVE_ON_ERROR=all
+      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
+      - EXECUTIONS_DATA_SAVE_ON_PROGRESS=false
+      # Security
+      - N8N_SECURE_COOKIE=true
+      - N8N_HIRING_BANNER_ENABLED=false
+      # API keys
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - SERP_API_KEY=${SERP_API_KEY}
+      - NCBI_API_KEY=${NCBI_API_KEY:-}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./workflows:/workflows:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - traefik.enable=true
+      # Main router
+      - traefik.http.routers.n8n.rule=Host(`${DOMAIN}`)
+      - traefik.http.routers.n8n.entrypoints=websecure
+      - traefik.http.routers.n8n.tls.certresolver=letsencrypt
+      - traefik.http.routers.n8n.middlewares=security-headers,rate-limit
+      - traefik.http.services.n8n.loadbalancer.server.port=5678
+      # Webhook router (higher rate limit)
+      - traefik.http.routers.n8n-webhook.rule=Host(`${DOMAIN}`) && PathPrefix(`/webhook`)
+      - traefik.http.routers.n8n-webhook.entrypoints=websecure
+      - traefik.http.routers.n8n-webhook.tls.certresolver=letsencrypt
+      - traefik.http.routers.n8n-webhook.middlewares=security-headers,webhook-rate-limit
+      # Webhook rate limiting (less restrictive)
+      - traefik.http.middlewares.webhook-rate-limit.ratelimit.average=300
+      - traefik.http.middlewares.webhook-rate-limit.ratelimit.burst=100
+      - traefik.http.middlewares.webhook-rate-limit.ratelimit.period=1m
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # ===========================================================================
+  # PostgreSQL - Database
+  # ===========================================================================
+  postgres:
+    image: postgres:14-alpine
+    container_name: foam_postgres
+    restart: always
+    networks:
+      - internal
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=n8n
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./config/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d n8n"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Security: no port exposure, internal network only
+
+  # ===========================================================================
+  # Redis - Queue and Cache
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: foam_redis
+    restart: always
+    networks:
+      - internal
+    command: >
+      redis-server
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --save 60 1
+      --loglevel warning
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+    # Security: no port exposure, internal network only
+
+  # ===========================================================================
+  # Ollama - Local LLM Inference
+  # ===========================================================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: foam_ollama
+    restart: always
+    networks:
+      - web
+      - internal
+    volumes:
+      - ollama_data:/root/.ollama
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.ollama.rule=Host(`ollama.${DOMAIN}`)
+      - traefik.http.routers.ollama.entrypoints=websecure
+      - traefik.http.routers.ollama.tls.certresolver=letsencrypt
+      - traefik.http.routers.ollama.middlewares=security-headers,ollama-auth
+      - traefik.http.services.ollama.loadbalancer.server.port=11434
+      # Basic auth for Ollama API
+      - traefik.http.middlewares.ollama-auth.basicauth.users=${OLLAMA_BASIC_AUTH:-${TRAEFIK_BASIC_AUTH}}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:11434/api/tags || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '1'
+          memory: 2G
+          devices:
+            - driver: nvidia
+              count: ${NVIDIA_GPU_COUNT:-1}
+              capabilities: [gpu]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Optional: Remove GPU if not available
+    # Comment out the devices section above and uncomment below
+    # runtime: runc
+
+  # ===========================================================================
+  # N8N Worker (Optional - for horizontal scaling)
+  # ===========================================================================
+  # Uncomment to add additional workers for heavy workloads
+  # n8n-worker:
+  #   image: n8nio/n8n:latest
+  #   container_name: foam_n8n_worker
+  #   restart: always
+  #   networks:
+  #     - internal
+  #   environment:
+  #     - N8N_BASIC_AUTH_ACTIVE=true
+  #     - N8N_BASIC_AUTH_USER=${N8N_USER}
+  #     - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
+  #     - NODE_ENV=production
+  #     - GENERIC_TIMEZONE=${TIMEZONE:-UTC}
+  #     - DB_TYPE=postgresdb
+  #     - DB_POSTGRESDB_HOST=postgres
+  #     - DB_POSTGRESDB_PORT=5432
+  #     - DB_POSTGRESDB_DATABASE=n8n
+  #     - DB_POSTGRESDB_USER=${POSTGRES_USER}
+  #     - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+  #     - QUEUE_BULL_REDIS_HOST=redis
+  #     - QUEUE_BULL_REDIS_PORT=6379
+  #     - QUEUE_BULL_REDIS_DB=0
+  #     - EXECUTIONS_MODE=queue
+  #     - N8N_SKIP_WEBHOOK_DEREGISTRATION_SHUTDOWN=true
+  #     # API keys
+  #     - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+  #     - OPENAI_API_KEY=${OPENAI_API_KEY}
+  #     - SERP_API_KEY=${SERP_API_KEY}
+  #     - NCBI_API_KEY=${NCBI_API_KEY:-}
+  #   command: worker
+  #   volumes:
+  #     - n8n_data:/home/node/.n8n
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   deploy:
+  #     replicas: 2
+  #     resources:
+  #       limits:
+  #         cpus: '2'
+  #         memory: 2G
+  #       reservations:
+  #         cpus: '0.5'
+  #         memory: 512M
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-size: "10m"
+  #       max-file: "3"
+
+volumes:
+  n8n_data:
+    driver: local
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  ollama_data:
+    driver: local
+
+# =============================================================================
+# Production Deployment Checklist
+# =============================================================================
+# Before deploying:
+# [ ] DNS configured and pointing to server
+# [ ] .env file created with all required variables
+# [ ] DOMAIN and LETSENCRYPT_EMAIL set in .env
+# [ ] Generate TRAEFIK_BASIC_AUTH: echo $(htpasswd -nb admin password) | sed -e s/\\$/\\$\\$/g
+# [ ] Create traefik/acme.json with chmod 600
+# [ ] Create traefik/logs directory
+# [ ] Create backups directory
+# [ ] Review resource limits based on server capacity
+# [ ] Configure firewall to allow ports 80 and 443
+# [ ] Set up backup cron jobs for postgres_data and n8n_data volumes
+# [ ] Configure monitoring and alerting
+# [ ] Test SSL certificate renewal: docker-compose -f docker-compose.prod.yml exec traefik traefik healthcheck
+#
+# First deployment:
+# docker-compose -f docker-compose.prod.yml up -d
+#
+# View logs:
+# docker-compose -f docker-compose.prod.yml logs -f
+#
+# Database backup:
+# docker-compose -f docker-compose.prod.yml exec postgres pg_dump -U foam n8n > backups/n8n_$(date +%Y%m%d_%H%M%S).sql
+#
+# For full deployment guide, see docs/deployment.md
+# =============================================================================

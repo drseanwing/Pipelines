@@ -1,0 +1,468 @@
+{
+  "name": "SLR_PRISMA_Generation",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "prisma-generation",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "execute-workflow-trigger-node",
+      "name": "Execute_Workflow_Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "slr-prisma-generation-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT se.database_source, COUNT(*) as record_count\nFROM search_executions se\nJOIN documents d ON se.id = d.search_execution_id\nWHERE se.review_id = $1\nGROUP BY se.database_source",
+        "options": {
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "review_id",
+                "value": "={{ $json.review_id }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "records-identified-query-node",
+      "name": "Records_Identified_Query",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [450, 200],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_slr",
+          "name": "PostgreSQL SLR"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COUNT(*) as duplicate_count\nFROM documents\nWHERE review_id = $1\n  AND is_duplicate = true",
+        "options": {
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "review_id",
+                "value": "={{ $json.review_id }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "duplicates-query-node",
+      "name": "Duplicates_Query",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_slr",
+          "name": "PostgreSQL SLR"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COUNT(*) as screened_count\nFROM screening_decisions\nWHERE review_id = $1\n  AND screening_stage = 'title_abstract'",
+        "options": {
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "review_id",
+                "value": "={{ $json.review_id }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "screened-query-node",
+      "name": "Screened_Query",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [450, 400],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_slr",
+          "name": "PostgreSQL SLR"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COUNT(*) as excluded_screening_count\nFROM screening_decisions\nWHERE review_id = $1\n  AND screening_stage = 'title_abstract'\n  AND decision = 'EXCLUDE'",
+        "options": {
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "review_id",
+                "value": "={{ $json.review_id }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "excluded-screening-query-node",
+      "name": "Excluded_Screening_Query",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [450, 500],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_slr",
+          "name": "PostgreSQL SLR"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COUNT(*) as reports_assessed_count\nFROM screening_decisions\nWHERE review_id = $1\n  AND screening_stage = 'full_text'",
+        "options": {
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "review_id",
+                "value": "={{ $json.review_id }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "reports-assessed-query-node",
+      "name": "Reports_Assessed_Query",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [450, 600],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_slr",
+          "name": "PostgreSQL SLR"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT exclusion_reason, COUNT(*) as count\nFROM screening_decisions\nWHERE review_id = $1\n  AND screening_stage = 'full_text'\n  AND decision = 'EXCLUDE'\n  AND exclusion_reason IS NOT NULL\nGROUP BY exclusion_reason\nORDER BY count DESC",
+        "options": {
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "review_id",
+                "value": "={{ $json.review_id }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "excluded-ft-query-node",
+      "name": "Excluded_FT_Query",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [450, 700],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_slr",
+          "name": "PostgreSQL SLR"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COUNT(*) as studies_included_count\nFROM screening_decisions\nWHERE review_id = $1\n  AND screening_stage = 'full_text'\n  AND decision = 'INCLUDE'",
+        "options": {
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "review_id",
+                "value": "={{ $json.review_id }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "studies-included-query-node",
+      "name": "Studies_Included_Query",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [450, 800],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_slr",
+          "name": "PostgreSQL SLR"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Aggregate PRISMA flow data from all query results\nconst recordsIdentified = $('Records_Identified_Query').all();\nconst duplicates = $('Duplicates_Query').first().json;\nconst screened = $('Screened_Query').first().json;\nconst excludedScreening = $('Excluded_Screening_Query').first().json;\nconst reportsAssessed = $('Reports_Assessed_Query').first().json;\nconst excludedFT = $('Excluded_FT_Query').all();\nconst studiesIncluded = $('Studies_Included_Query').first().json;\n\n// Build records_identified object {database_name: count}\nconst recordsIdentifiedObj = {};\nfor (const item of recordsIdentified) {\n  const dbSource = item.json.database_source || 'unknown';\n  const count = parseInt(item.json.record_count) || 0;\n  recordsIdentifiedObj[dbSource] = count;\n}\n\n// Build reports_excluded array [{reason, count}]\nconst reportsExcludedArray = [];\nfor (const item of excludedFT) {\n  const reason = item.json.exclusion_reason || 'unspecified';\n  const count = parseInt(item.json.count) || 0;\n  reportsExcludedArray.push({ reason, count });\n}\n\nconst prismaData = {\n  records_identified: recordsIdentifiedObj,\n  duplicates_removed: parseInt(duplicates.duplicate_count) || 0,\n  records_screened: parseInt(screened.screened_count) || 0,\n  records_excluded_screening: parseInt(excludedScreening.excluded_screening_count) || 0,\n  reports_assessed: parseInt(reportsAssessed.reports_assessed_count) || 0,\n  reports_excluded: reportsExcludedArray,\n  studies_included: parseInt(studiesIncluded.studies_included_count) || 0,\n  review_id: $input.first().json.review_id\n};\n\nreturn prismaData;"
+      },
+      "id": "aggregate-prisma-node",
+      "name": "Aggregate_Prisma",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [750, 500]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO prisma_flow (\n  review_id,\n  records_identified,\n  duplicates_removed,\n  records_screened,\n  records_excluded_screening,\n  reports_assessed,\n  reports_excluded,\n  studies_included,\n  flow_version,\n  generated_at\n)\nVALUES (\n  $1,\n  $2::jsonb,\n  $3,\n  $4,\n  $5,\n  $6,\n  $7::jsonb,\n  $8,\n  COALESCE(\n    (SELECT MAX(flow_version) + 1 FROM prisma_flow WHERE review_id = $1),\n    1\n  ),\n  NOW()\n)\nON CONFLICT (review_id, flow_version)\nDO UPDATE SET\n  records_identified = EXCLUDED.records_identified,\n  duplicates_removed = EXCLUDED.duplicates_removed,\n  records_screened = EXCLUDED.records_screened,\n  records_excluded_screening = EXCLUDED.records_excluded_screening,\n  reports_assessed = EXCLUDED.reports_assessed,\n  reports_excluded = EXCLUDED.reports_excluded,\n  studies_included = EXCLUDED.studies_included,\n  generated_at = NOW()\nRETURNING *",
+        "options": {
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "review_id",
+                "value": "={{ $json.review_id }}"
+              },
+              {
+                "name": "records_identified",
+                "value": "={{ JSON.stringify($json.records_identified) }}"
+              },
+              {
+                "name": "duplicates_removed",
+                "value": "={{ $json.duplicates_removed }}"
+              },
+              {
+                "name": "records_screened",
+                "value": "={{ $json.records_screened }}"
+              },
+              {
+                "name": "records_excluded_screening",
+                "value": "={{ $json.records_excluded_screening }}"
+              },
+              {
+                "name": "reports_assessed",
+                "value": "={{ $json.reports_assessed }}"
+              },
+              {
+                "name": "reports_excluded",
+                "value": "={{ JSON.stringify($json.reports_excluded) }}"
+              },
+              {
+                "name": "studies_included",
+                "value": "={{ $json.studies_included }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "upsert-prisma-flow-node",
+      "name": "Upsert_Prisma_Flow",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [950, 500],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_slr",
+          "name": "PostgreSQL SLR"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Format PRISMA data for human-readable display\nconst prisma = $input.first().json;\n\nconst recordsIdentifiedDisplay = Object.entries(prisma.records_identified || {})\n  .map(([db, count]) => `  - ${db}: ${count}`)\n  .join('\\n');\n\nconst reportsExcludedDisplay = (prisma.reports_excluded || [])\n  .map(item => `  - ${item.reason}: ${item.count}`)\n  .join('\\n');\n\nconst summary = `PRISMA 2020 Flow Diagram Summary (v${prisma.flow_version})\n\nIDENTIFICATION:\nRecords identified from databases:\n${recordsIdentifiedDisplay}\n\nSCREENING:\nDuplicates removed: ${prisma.duplicates_removed}\nRecords screened: ${prisma.records_screened}\nRecords excluded at screening: ${prisma.records_excluded_screening}\n\nASSESSMENT:\nReports assessed for eligibility: ${prisma.reports_assessed}\nReports excluded at full-text stage:\n${reportsExcludedDisplay || '  (None)'}\n\nINCLUDED:\nStudies included in review: ${prisma.studies_included}\n\nGenerated: ${new Date(prisma.generated_at).toLocaleString()}`;\n\nreturn {\n  summary,\n  prisma_data: prisma\n};"
+      },
+      "id": "format-display-node",
+      "name": "Format_Display",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1150, 500]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "return-prisma-node",
+      "name": "Return_Prisma",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1350, 500]
+    }
+  ],
+  "connections": {
+    "Execute_Workflow_Trigger": {
+      "main": [
+        [
+          {
+            "node": "Records_Identified_Query",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Duplicates_Query",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Screened_Query",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Excluded_Screening_Query",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Reports_Assessed_Query",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Excluded_FT_Query",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Studies_Included_Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Records_Identified_Query": {
+      "main": [
+        [
+          {
+            "node": "Aggregate_Prisma",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Duplicates_Query": {
+      "main": [
+        [
+          {
+            "node": "Aggregate_Prisma",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Screened_Query": {
+      "main": [
+        [
+          {
+            "node": "Aggregate_Prisma",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Excluded_Screening_Query": {
+      "main": [
+        [
+          {
+            "node": "Aggregate_Prisma",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reports_Assessed_Query": {
+      "main": [
+        [
+          {
+            "node": "Aggregate_Prisma",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Excluded_FT_Query": {
+      "main": [
+        [
+          {
+            "node": "Aggregate_Prisma",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Studies_Included_Query": {
+      "main": [
+        [
+          {
+            "node": "Aggregate_Prisma",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate_Prisma": {
+      "main": [
+        [
+          {
+            "node": "Upsert_Prisma_Flow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert_Prisma_Flow": {
+      "main": [
+        [
+          {
+            "node": "Format_Display",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format_Display": {
+      "main": [
+        [
+          {
+            "node": "Return_Prisma",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "id": "slr-workflows",
+      "name": "SLR Workflows"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2026-01-25T00:00:00.000Z",
+  "versionId": "1.0.0",
+  "active": false
+}

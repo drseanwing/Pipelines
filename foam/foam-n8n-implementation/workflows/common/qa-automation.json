@@ -1,0 +1,504 @@
+{
+  "name": "FOAM QA Automation",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 300],
+      "notes": "Manual trigger for testing or ad-hoc QA requests. Can also be called as sub-workflow. Expects: { draft_id, draft_content, format, evidence_package? }"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Initialize QA Context\n// Set up QA session, load draft content and format specifications\n\nconst input = $input.first().json;\n\n// Generate QA session ID\nconst qaSessionId = `qa-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;\n\n// Determine format type and load appropriate specs\nconst formatType = input.format || 'clinical-review';\nconst formatSpecs = {\n  'clinical-review': {\n    style_guide: 'style-compliance.md',\n    structure_template: 'structure-validation.md',\n    citation_rules: 'citation-verification.md',\n    quality_rubric: 'quality-scoring.md',\n    min_citations: 5,\n    max_word_count: 3000,\n    required_sections: ['introduction', 'background', 'evidence', 'clinical-pearls', 'conclusion']\n  },\n  'journal-club': {\n    style_guide: 'style-compliance.md',\n    structure_template: 'structure-validation.md',\n    citation_rules: 'citation-verification.md',\n    quality_rubric: 'quality-scoring.md',\n    min_citations: 10,\n    max_word_count: 2500,\n    required_sections: ['paper-summary', 'methods-critique', 'results-analysis', 'clinical-applicability']\n  },\n  'case-based': {\n    style_guide: 'style-compliance.md',\n    structure_template: 'structure-validation.md',\n    citation_rules: 'citation-verification.md',\n    quality_rubric: 'quality-scoring.md',\n    min_citations: 3,\n    max_word_count: 2000,\n    required_sections: ['case-presentation', 'differential-diagnosis', 'workup', 'management', 'learning-points']\n  }\n};\n\nconst qaContext = {\n  qa_session_id: qaSessionId,\n  draft_id: input.draft_id || `draft-${Date.now()}`,\n  draft_content: input.draft_content || input.content || '',\n  draft_title: input.draft_title || input.title || 'Untitled Draft',\n  format: formatType,\n  format_specs: formatSpecs[formatType] || formatSpecs['clinical-review'],\n  \n  // Metadata\n  topic: input.topic || {},\n  target_audience: input.target_audience || 'EM physicians',\n  regional_context: input.regional_context || 'International',\n  \n  // Word count for reference\n  word_count: (input.draft_content || '').split(/\\s+/).filter(w => w.length > 0).length,\n  \n  // QA configuration\n  qa_config: {\n    parallel_checks: true,\n    style_weight: 0.2,\n    structure_weight: 0.25,\n    citation_weight: 0.3,\n    clinical_accuracy_weight: 0.25\n  },\n  \n  // Tracking\n  _stage: 'qa_initialized',\n  _workflow: 'qa-automation',\n  _started_at: new Date().toISOString()\n};\n\nreturn { json: qaContext };"
+      },
+      "id": "init-qa",
+      "name": "Initialize QA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Load Evidence Package\n// Fetch evidence package for citation verification from previous workflow stages or database\n\nconst input = $input.first().json;\n\n// In production, this would query the database for the evidence package\n// associated with this draft from the evidence-search workflow\n\nconst evidencePackage = input.evidence_package || {\n  package_id: input.evidence_package_id || `evid-${input.draft_id}`,\n  draft_id: input.draft_id,\n  \n  // Primary sources from evidence search\n  primary_sources: input.primary_sources || [],\n  \n  // PubMed references\n  pubmed_references: input.pubmed_references || [],\n  \n  // FOAM crossrefs\n  foam_crossrefs: input.foam_crossrefs || [],\n  \n  // Guidelines referenced\n  guidelines: input.guidelines || [],\n  \n  // Citation map (citation_key -> source details)\n  citation_map: input.citation_map || {},\n  \n  // Total citations in draft\n  total_citations_in_draft: (input.draft_content || '').match(/\\[\\d+\\]|\\(\\w+\\s+et\\s+al\\.?,?\\s*\\d{4}\\)/gi)?.length || 0,\n  \n  _loaded_at: new Date().toISOString()\n};\n\nconst result = {\n  ...input,\n  evidence_package: evidencePackage,\n  _stage: 'evidence_loaded'\n};\n\nreturn { json: result };"
+      },
+      "id": "load-evidence",
+      "name": "Load Evidence Package",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parallel QA Checks Branch\n// Split workflow for parallel execution of style/structure and citation checks\n// This node outputs to multiple branches simultaneously\n\nconst input = $input.first().json;\n\n// Prepare context for parallel branches\nconst parallelContext = {\n  ...input,\n  _stage: 'parallel_qa_started',\n  _parallel_start: new Date().toISOString(),\n  \n  // Branch identifiers for tracking\n  branches: {\n    style_structure: 'active',\n    citations: 'active'\n  }\n};\n\n// Return same data to all branches\nreturn { json: parallelContext };"
+      },
+      "id": "parallel-branch",
+      "name": "Parallel QA Checks Branch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'You are a medical content style compliance reviewer. Analyze the draft content against FOAM style guidelines to ensure readability, tone, and formatting meet standards for emergency medicine educational content.\\n\\n## Draft Content to Review:\\n' + $json.draft_content + '\\n\\n## Format Type: ' + $json.format + '\\n\\n## Style Guidelines (from style-compliance.md):\\n\\n### Tone & Voice\\n- Expert-to-expert collegial tone\\n- Active voice preferred\\n- Avoid condescending language\\n- Use second person (\"you\") sparingly\\n- Clinical confidence without arrogance\\n\\n### Readability\\n- Target Flesch-Kincaid Grade Level: 10-12\\n- Average sentence length: 15-20 words\\n- Paragraphs: 3-5 sentences max\\n- Use bullet points for lists\\n- Headers every 200-300 words\\n\\n### Medical Terminology\\n- Define uncommon abbreviations on first use\\n- Use standard medical terminology\\n- Spell out drug names (generic preferred)\\n- Include units for all measurements\\n\\n### Formatting\\n- Consistent heading hierarchy (H1 > H2 > H3)\\n- Proper citation format [Author, Year]\\n- Tables for comparative data\\n- Highlight boxes for clinical pearls\\n\\n## Output Format:\\nReturn a valid JSON object:\\n{\\n  \"style_assessment\": {\\n    \"overall_compliance\": 0.85,\\n    \"tone_score\": 0.90,\\n    \"readability_score\": 0.80,\\n    \"terminology_score\": 0.85,\\n    \"formatting_score\": 0.82\\n  },\\n  \"readability_metrics\": {\\n    \"flesch_kincaid_grade\": 11.2,\\n    \"avg_sentence_length\": 17.5,\\n    \"avg_paragraph_length\": 4.2,\\n    \"passive_voice_percentage\": 15\\n  },\\n  \"issues\": [\\n    {\\n      \"issue_id\": \"style-001\",\\n      \"severity\": \"minor|moderate|major\",\\n      \"category\": \"tone|readability|terminology|formatting\",\\n      \"location\": \"section or line reference\",\\n      \"description\": \"issue description\",\\n      \"suggestion\": \"how to fix\",\\n      \"example_current\": \"problematic text\",\\n      \"example_improved\": \"suggested revision\"\\n    }\\n  ],\\n  \"strengths\": [],\\n  \"recommendations\": []\\n}\\n\\nBe thorough but constructive. Prioritize issues affecting clarity and clinical communication.' }}",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "check-style",
+      "name": "Ollama Agent for Style",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [880, 200]
+    },
+    {
+      "parameters": {
+        "baseUrl": "http://host.docker.internal:11434",
+        "model": "llama3.2:latest",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "ollama-llama-style",
+      "name": "Ollama Llama 3.2 (Style)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [880, 400]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'You are a medical content structure validator. Analyze the draft content against the required structure template for this format type to ensure all required sections are present and properly organized.\\n\\n## Draft Content to Analyze:\\n' + $json.draft_content + '\\n\\n## Format Type: ' + $json.format + '\\n\\n## Required Sections for ' + $json.format + ':\\n' + JSON.stringify($json.format_specs?.required_sections || [], null, 2) + '\\n\\n## Structure Validation Rules (from structure-validation.md):\\n\\n### Section Requirements\\n- All required sections must be present\\n- Sections should follow logical flow\\n- Each section needs clear heading\\n- Minimum content per section: 100 words\\n\\n### Organization\\n- Introduction should establish clinical relevance\\n- Background provides necessary context\\n- Evidence section presents data systematically\\n- Clinical pearls offer practical takeaways\\n- Conclusion summarizes key points\\n\\n### Cross-references\\n- Internal section references should be valid\\n- Figure/table references must exist\\n- Citations should be in correct sections\\n\\n### Length Requirements\\n- Minimum word count: ' + ($json.format_specs?.min_citations || 5) * 100 + '\\n- Maximum word count: ' + ($json.format_specs?.max_word_count || 3000) + '\\n- Current word count: ' + $json.word_count + '\\n\\n## Output Format:\\nReturn a valid JSON object:\\n{\\n  \"structure_assessment\": {\\n    \"overall_compliance\": 0.90,\\n    \"sections_complete\": true,\\n    \"organization_score\": 0.88,\\n    \"length_compliance\": true\\n  },\\n  \"sections_found\": [\\n    {\\n      \"section_name\": \"name\",\\n      \"present\": true,\\n      \"word_count\": 250,\\n      \"position\": 1,\\n      \"quality_score\": 0.85,\\n      \"issues\": []\\n    }\\n  ],\\n  \"missing_sections\": [],\\n  \"section_order_issues\": [],\\n  \"cross_reference_issues\": [],\\n  \"length_analysis\": {\\n    \"total_words\": 2500,\\n    \"within_limits\": true,\\n    \"sections_too_short\": [],\\n    \"sections_too_long\": []\\n  },\\n  \"recommendations\": []\\n}\\n\\nValidate structure systematically. Missing required sections should be flagged as major issues.' }}",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "check-structure",
+      "name": "Ollama Agent for Structure",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [1100, 200]
+    },
+    {
+      "parameters": {
+        "baseUrl": "http://host.docker.internal:11434",
+        "model": "llama3.2:latest",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "ollama-llama-structure",
+      "name": "Ollama Llama 3.2 (Structure)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [1100, 400]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'You are a medical citation verification specialist. Verify all citations in the draft content against the evidence package to ensure accuracy, completeness, and proper attribution.\\n\\n## Draft Content with Citations:\\n' + $json.draft_content + '\\n\\n## Evidence Package:\\n' + JSON.stringify({\\n  total_citations_expected: $json.evidence_package?.total_citations_in_draft || 0,\\n  primary_sources_count: $json.evidence_package?.primary_sources?.length || 0,\\n  pubmed_refs_count: $json.evidence_package?.pubmed_references?.length || 0,\\n  guidelines_count: $json.evidence_package?.guidelines?.length || 0\\n}, null, 2) + '\\n\\n## Citation Verification Rules (from citation-verification.md):\\n\\n### Citation Format\\n- Numbered citations: [1], [2], [3]...\\n- Author-date: (Smith et al., 2023)\\n- Consistent format throughout\\n\\n### Verification Checks\\n1. Citation exists in evidence package\\n2. Citation accurately represents source\\n3. Citation is in appropriate context\\n4. Statistical claims match source data\\n5. Guidelines are current (not outdated)\\n\\n### Priority Levels\\n- HIGH: Drug doses, clinical thresholds, safety data\\n- MEDIUM: Epidemiology, background statistics\\n- LOW: Historical context, general information\\n\\n### Red Flags\\n- Citation needed but missing\\n- Citation cannot be verified\\n- Claim does not match cited source\\n- Outdated guideline (>5 years for clinical recs)\\n\\n## Output Format:\\nReturn a valid JSON object:\\n{\\n  \"citation_assessment\": {\\n    \"overall_compliance\": 0.85,\\n    \"total_citations\": 15,\\n    \"verified\": 12,\\n    \"unverified\": 2,\\n    \"missing\": 1,\\n    \"mismatched\": 0\\n  },\\n  \"verified_citations\": [\\n    {\\n      \"citation_id\": \"[1]\",\\n      \"source\": \"Author, Year\",\\n      \"verification_status\": \"verified|unverified|mismatched\",\\n      \"context_appropriate\": true,\\n      \"accuracy_score\": 0.95\\n    }\\n  ],\\n  \"issues\": [\\n    {\\n      \"issue_id\": \"cit-001\",\\n      \"severity\": \"minor|moderate|major|critical\",\\n      \"citation_ref\": \"[3]\",\\n      \"issue_type\": \"missing|unverified|mismatched|outdated|format_error\",\\n      \"description\": \"issue description\",\\n      \"location\": \"section or context\",\\n      \"recommendation\": \"how to fix\"\\n    }\\n  ],\\n  \"uncited_claims\": [],\\n  \"outdated_sources\": [],\\n  \"recommendations\": []\\n}\\n\\nBe rigorous. Citation accuracy is critical for medical education content.' }}",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "check-citations",
+      "name": "Ollama Agent for Citations",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [880, 500]
+    },
+    {
+      "parameters": {
+        "baseUrl": "http://host.docker.internal:11434",
+        "model": "mistral:latest",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "ollama-mistral-citations",
+      "name": "Ollama Mistral (Citations)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [880, 700]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge Results\n// Combine all QA check results from parallel branches\n// This node waits for all parallel branches to complete\n\nconst items = $input.all();\n\n// Initialize merged results\nlet styleResult = null;\nlet structureResult = null;\nlet citationResult = null;\nlet baseContext = null;\n\n// Process all incoming items\nfor (const item of items) {\n  const data = item.json;\n  \n  // Capture base context from first item\n  if (!baseContext) {\n    baseContext = {\n      qa_session_id: data.qa_session_id,\n      draft_id: data.draft_id,\n      draft_content: data.draft_content,\n      draft_title: data.draft_title,\n      format: data.format,\n      format_specs: data.format_specs,\n      word_count: data.word_count,\n      qa_config: data.qa_config,\n      evidence_package: data.evidence_package,\n      topic: data.topic,\n      target_audience: data.target_audience,\n      regional_context: data.regional_context,\n      _started_at: data._started_at\n    };\n  }\n  \n  // Parse style result\n  if (data.output && data.output.includes('style_assessment')) {\n    try {\n      const jsonMatch = data.output.match(/\\{[\\s\\S]*\\}/);\n      if (jsonMatch) styleResult = JSON.parse(jsonMatch[0]);\n    } catch (e) {\n      styleResult = { parse_error: e.message, raw: data.output?.substring(0, 500) };\n    }\n  }\n  \n  // Parse structure result\n  if (data.output && data.output.includes('structure_assessment')) {\n    try {\n      const jsonMatch = data.output.match(/\\{[\\s\\S]*\\}/);\n      if (jsonMatch) structureResult = JSON.parse(jsonMatch[0]);\n    } catch (e) {\n      structureResult = { parse_error: e.message, raw: data.output?.substring(0, 500) };\n    }\n  }\n  \n  // Parse citation result\n  if (data.output && data.output.includes('citation_assessment')) {\n    try {\n      const jsonMatch = data.output.match(/\\{[\\s\\S]*\\}/);\n      if (jsonMatch) citationResult = JSON.parse(jsonMatch[0]);\n    } catch (e) {\n      citationResult = { parse_error: e.message, raw: data.output?.substring(0, 500) };\n    }\n  }\n  \n  // Also check for pre-parsed results\n  if (data.style_result) styleResult = data.style_result;\n  if (data.structure_result) structureResult = data.structure_result;\n  if (data.citation_result) citationResult = data.citation_result;\n}\n\n// Default results if parsing failed\nif (!styleResult) {\n  styleResult = {\n    style_assessment: { overall_compliance: 0.75 },\n    issues: [],\n    recommendations: []\n  };\n}\n\nif (!structureResult) {\n  structureResult = {\n    structure_assessment: { overall_compliance: 0.75 },\n    sections_found: [],\n    missing_sections: [],\n    recommendations: []\n  };\n}\n\nif (!citationResult) {\n  citationResult = {\n    citation_assessment: { overall_compliance: 0.75 },\n    verified_citations: [],\n    issues: [],\n    recommendations: []\n  };\n}\n\nconst mergedResults = {\n  ...baseContext,\n  \n  qa_checks: {\n    style: styleResult,\n    structure: structureResult,\n    citations: citationResult\n  },\n  \n  _stage: 'qa_checks_merged',\n  _merged_at: new Date().toISOString()\n};\n\nreturn { json: mergedResults };"
+      },
+      "id": "merge-results",
+      "name": "Merge Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Load Validation Results\n// Fetch dose/claim validation results from validation-system workflow\n\nconst input = $input.first().json;\n\n// In production, query database for validation results by draft_id\nconst validationResults = input.validation_results || {\n  validation_id: `val-${input.draft_id}`,\n  draft_id: input.draft_id,\n  \n  // Dose extraction from validation-system\n  dose_extraction: input.dose_extraction || {\n    extraction_summary: {\n      total_items: 0,\n      high_priority: 0,\n      medium_priority: 0,\n      low_priority: 0,\n      uncited_items: 0\n    },\n    drug_doses: [],\n    clinical_thresholds: []\n  },\n  \n  // Claim verification from validation-system\n  claim_verification: input.claim_verification || {\n    verification_summary: {\n      total_claims: 0,\n      accurate: 0,\n      partially_accurate: 0,\n      inaccurate: 0,\n      unverifiable: 0\n    },\n    verified_claims: [],\n    flagged_claims: []\n  },\n  \n  // Guideline conflicts from validation-system\n  guideline_conflicts: input.guideline_conflicts || {\n    conflict_summary: {\n      total_recommendations_checked: 0,\n      direct_conflicts: 0,\n      potential_conflicts: 0\n    },\n    conflicts: []\n  },\n  \n  validation_status: 'loaded',\n  _loaded_at: new Date().toISOString()\n};\n\nconst result = {\n  ...input,\n  validation_results: validationResults,\n  _stage: 'validation_loaded'\n};\n\nreturn { json: result };"
+      },
+      "id": "load-validation",
+      "name": "Load Validation Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1540, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'You are a senior medical education quality assessor. Synthesize all QA check results to produce a comprehensive quality score and grade for this FOAM clinical content.\\n\\n## Draft Information\\n\\n**Title:** ' + $json.draft_title + '\\n**Format:** ' + $json.format + '\\n**Word Count:** ' + $json.word_count + '\\n\\n## QA Check Results\\n\\n### Style Compliance\\n' + JSON.stringify($json.qa_checks?.style?.style_assessment || {}, null, 2) + '\\n\\n### Structure Validation\\n' + JSON.stringify($json.qa_checks?.structure?.structure_assessment || {}, null, 2) + '\\n\\n### Citation Verification\\n' + JSON.stringify($json.qa_checks?.citations?.citation_assessment || {}, null, 2) + '\\n\\n## Validation System Results\\n\\n### Dose Extraction Summary\\n' + JSON.stringify($json.validation_results?.dose_extraction?.extraction_summary || {}, null, 2) + '\\n\\n### Claim Verification Summary\\n' + JSON.stringify($json.validation_results?.claim_verification?.verification_summary || {}, null, 2) + '\\n\\n### Guideline Conflicts Summary\\n' + JSON.stringify($json.validation_results?.guideline_conflicts?.conflict_summary || {}, null, 2) + '\\n\\n## QA Weight Configuration\\n' + JSON.stringify($json.qa_config || {}, null, 2) + '\\n\\n## Quality Scoring Rubric (from quality-scoring.md):\\n\\n### Grade Definitions\\n- **A (90-100%)**: Publication-ready, minimal to no issues\\n- **B (80-89%)**: Good quality, minor revisions needed\\n- **C (70-79%)**: Acceptable, moderate revisions required\\n- **D (60-69%)**: Below standard, significant revisions needed\\n- **F (<60%)**: Unacceptable, major rework required\\n\\n### Scoring Components\\n1. **Clinical Accuracy (25%)**: Dose/claim verification, guideline alignment\\n2. **Citation Quality (30%)**: Verification rate, source quality, recency\\n3. **Structure (25%)**: Section completeness, organization, flow\\n4. **Style (20%)**: Readability, tone, formatting\\n\\n### Automatic Fails\\n- Any inaccurate drug dose\\n- Direct guideline conflict without explanation\\n- Missing critical sections\\n- <50% citation verification rate\\n\\n## Task\\n\\nSynthesize all results into a final quality assessment. Consider:\\n1. Weight each component according to config\\n2. Check for automatic fail conditions\\n3. Identify the most critical issues\\n4. Provide actionable recommendations\\n\\n## Output Format:\\nReturn a valid JSON object:\\n{\\n  \"quality_assessment\": {\\n    \"overall_score\": 0.85,\\n    \"grade\": \"B\",\\n    \"grade_label\": \"Good - Minor Revisions Needed\",\\n    \"publication_ready\": false,\\n    \"automatic_fails\": []\\n  },\\n  \"component_scores\": {\\n    \"clinical_accuracy\": {\\n      \"score\": 0.88,\\n      \"weight\": 0.25,\\n      \"weighted_score\": 0.22,\\n      \"issues_count\": 2\\n    },\\n    \"citation_quality\": {\\n      \"score\": 0.82,\\n      \"weight\": 0.30,\\n      \"weighted_score\": 0.246,\\n      \"verification_rate\": 0.85\\n    },\\n    \"structure\": {\\n      \"score\": 0.90,\\n      \"weight\": 0.25,\\n      \"weighted_score\": 0.225,\\n      \"sections_complete\": true\\n    },\\n    \"style\": {\\n      \"score\": 0.80,\\n      \"weight\": 0.20,\\n      \"weighted_score\": 0.16,\\n      \"readability_score\": 0.78\\n    }\\n  },\\n  \"critical_issues\": [\\n    {\\n      \"issue_id\": \"crit-001\",\\n      \"severity\": \"high\",\\n      \"category\": \"clinical_accuracy|citations|structure|style\",\\n      \"description\": \"description\",\\n      \"impact\": \"impact on quality\",\\n      \"recommendation\": \"how to address\",\\n      \"blocks_publication\": true\\n    }\\n  ],\\n  \"strengths\": [],\\n  \"improvement_priorities\": [],\\n  \"estimated_revision_effort\": \"X hours\",\\n  \"reviewer_notes\": \"synthesis notes\",\\n  \"next_steps\": []\\n}\\n\\nBe rigorous but fair. Quality assessment directly impacts what gets published to clinicians.' }}",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "quality-scoring",
+      "name": "Claude Agent for Quality Scoring",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [1760, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "temperature": 0.3,
+          "maxTokensToSample": 4096
+        }
+      },
+      "id": "claude-sonnet-scoring",
+      "name": "Claude Sonnet Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [1760, 500],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credential",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate QA Report\n// Assemble comprehensive QA report from all checks and quality scoring\n\nconst input = $input.first().json;\nconst scoringOutput = input.output || input.text || '{}';\n\n// Parse quality scoring result\nlet qualityAssessment;\ntry {\n  const jsonMatch = scoringOutput.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    qualityAssessment = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found in scoring output');\n  }\n} catch (e) {\n  qualityAssessment = {\n    quality_assessment: {\n      overall_score: 0.70,\n      grade: 'C',\n      grade_label: 'Acceptable - Revisions Required',\n      publication_ready: false,\n      automatic_fails: [],\n      parse_error: e.message\n    },\n    component_scores: {},\n    critical_issues: [],\n    strengths: [],\n    improvement_priorities: []\n  };\n}\n\n// Extract grade for routing\nconst grade = qualityAssessment.quality_assessment?.grade || 'C';\nconst overallScore = qualityAssessment.quality_assessment?.overall_score || 0.70;\nconst publicationReady = qualityAssessment.quality_assessment?.publication_ready || false;\n\n// Compile all issues from all checks\nconst allIssues = [];\n\n// Style issues\nif (input.qa_checks?.style?.issues) {\n  allIssues.push(...input.qa_checks.style.issues.map(i => ({ ...i, source: 'style' })));\n}\n\n// Structure issues\nif (input.qa_checks?.structure?.section_order_issues) {\n  allIssues.push(...input.qa_checks.structure.section_order_issues.map(i => ({ ...i, source: 'structure' })));\n}\nif (input.qa_checks?.structure?.missing_sections) {\n  allIssues.push(...input.qa_checks.structure.missing_sections.map(s => ({\n    issue_id: `struct-miss-${s}`,\n    severity: 'major',\n    description: `Missing required section: ${s}`,\n    source: 'structure'\n  })));\n}\n\n// Citation issues\nif (input.qa_checks?.citations?.issues) {\n  allIssues.push(...input.qa_checks.citations.issues.map(i => ({ ...i, source: 'citations' })));\n}\n\n// Critical issues from quality scoring\nif (qualityAssessment.critical_issues) {\n  allIssues.push(...qualityAssessment.critical_issues.map(i => ({ ...i, source: 'quality_scoring' })));\n}\n\n// Build comprehensive QA report\nconst qaReport = {\n  report_metadata: {\n    report_id: `qa-report-${input.qa_session_id}`,\n    qa_session_id: input.qa_session_id,\n    draft_id: input.draft_id,\n    draft_title: input.draft_title,\n    format: input.format,\n    generated_at: new Date().toISOString()\n  },\n  \n  summary: {\n    grade: grade,\n    grade_label: qualityAssessment.quality_assessment?.grade_label || '',\n    overall_score: overallScore,\n    publication_ready: publicationReady,\n    total_issues: allIssues.length,\n    critical_issues: allIssues.filter(i => i.severity === 'critical' || i.severity === 'major').length,\n    estimated_revision_effort: qualityAssessment.estimated_revision_effort || 'Unknown'\n  },\n  \n  component_scores: qualityAssessment.component_scores || {},\n  \n  qa_checks: {\n    style: {\n      score: input.qa_checks?.style?.style_assessment?.overall_compliance || 0,\n      issues_count: input.qa_checks?.style?.issues?.length || 0,\n      summary: input.qa_checks?.style?.style_assessment || {}\n    },\n    structure: {\n      score: input.qa_checks?.structure?.structure_assessment?.overall_compliance || 0,\n      sections_complete: input.qa_checks?.structure?.structure_assessment?.sections_complete || false,\n      missing_sections: input.qa_checks?.structure?.missing_sections || [],\n      summary: input.qa_checks?.structure?.structure_assessment || {}\n    },\n    citations: {\n      score: input.qa_checks?.citations?.citation_assessment?.overall_compliance || 0,\n      verified: input.qa_checks?.citations?.citation_assessment?.verified || 0,\n      total: input.qa_checks?.citations?.citation_assessment?.total_citations || 0,\n      summary: input.qa_checks?.citations?.citation_assessment || {}\n    }\n  },\n  \n  validation_summary: {\n    doses: input.validation_results?.dose_extraction?.extraction_summary || {},\n    claims: input.validation_results?.claim_verification?.verification_summary || {},\n    guidelines: input.validation_results?.guideline_conflicts?.conflict_summary || {}\n  },\n  \n  all_issues: allIssues,\n  \n  critical_issues: qualityAssessment.critical_issues || [],\n  \n  strengths: qualityAssessment.strengths || [],\n  \n  improvement_priorities: qualityAssessment.improvement_priorities || [],\n  \n  recommendations: [\n    ...(input.qa_checks?.style?.recommendations || []),\n    ...(input.qa_checks?.structure?.recommendations || []),\n    ...(input.qa_checks?.citations?.recommendations || []),\n    ...(qualityAssessment.next_steps || [])\n  ],\n  \n  reviewer_notes: qualityAssessment.reviewer_notes || ''\n};\n\n// Clean up context\nconst cleanedInput = { ...input };\ndelete cleanedInput.output;\ndelete cleanedInput.text;\n\nconst result = {\n  ...cleanedInput,\n  qa_report: qaReport,\n  grade: grade,\n  overall_score: overallScore,\n  publication_ready: publicationReady,\n  _stage: 'qa_report_generated'\n};\n\nreturn { json: result };"
+      },
+      "id": "generate-report",
+      "name": "Generate QA Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1980, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.grade }}",
+              "operation": "regex",
+              "value2": "^[AB]$"
+            }
+          ]
+        }
+      },
+      "id": "route-by-grade",
+      "name": "Route by Grade",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2200, 300],
+      "notes": "Routes Grade A/B to storage (pass), Grade C/D/F to revision flagging (needs work)."
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "qa_results"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "qa_session_id": "={{ $json.qa_session_id }}",
+            "draft_id": "={{ $json.draft_id }}",
+            "grade": "={{ $json.grade }}",
+            "overall_score": "={{ $json.overall_score }}",
+            "publication_ready": "={{ $json.publication_ready }}",
+            "qa_report": "={{ JSON.stringify($json.qa_report) }}",
+            "created_at": "={{ new Date().toISOString() }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "store-results",
+      "name": "Store QA Results",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2420, 200],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credential",
+          "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Flag for Revision\n// Mark draft as needing revision based on QA results\n\nconst input = $input.first().json;\n\nconst revisionFlag = {\n  flag_id: `flag-${Date.now()}`,\n  draft_id: input.draft_id,\n  qa_session_id: input.qa_session_id,\n  \n  // Flag details\n  grade: input.grade,\n  overall_score: input.overall_score,\n  reason: `QA grade ${input.grade} requires revision before publication`,\n  \n  // Issues requiring attention\n  critical_issues: input.qa_report?.critical_issues || [],\n  total_issues: input.qa_report?.all_issues?.length || 0,\n  \n  // Improvement priorities\n  improvement_priorities: input.qa_report?.improvement_priorities || [],\n  \n  // Estimated effort\n  estimated_revision_effort: input.qa_report?.summary?.estimated_revision_effort || 'Unknown',\n  \n  // Component scores for targeted revision\n  component_scores: input.qa_report?.component_scores || {},\n  \n  // Recommendations\n  recommendations: input.qa_report?.recommendations || [],\n  \n  // Status\n  status: 'flagged_for_revision',\n  flagged_at: new Date().toISOString(),\n  \n  // Notification info\n  notification: {\n    should_notify: true,\n    urgency: input.grade === 'F' ? 'high' : input.grade === 'D' ? 'medium' : 'low',\n    message: `Draft \"${input.draft_title}\" received QA grade ${input.grade} and requires revision.`\n  }\n};\n\nconst result = {\n  ...input,\n  revision_flag: revisionFlag,\n  _stage: 'flagged_for_revision'\n};\n\nreturn { json: result };"
+      },
+      "id": "flag-revision",
+      "name": "Flag for Revision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2420, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log Completion\n// Final logging of QA automation workflow outcome\n\nconst input = $input.first().json;\n\nconst completionLog = {\n  workflow: 'qa-automation',\n  qa_session_id: input.qa_session_id,\n  draft_id: input.draft_id,\n  draft_title: input.draft_title,\n  \n  // Timing\n  started_at: input._started_at,\n  completed_at: new Date().toISOString(),\n  \n  // Outcome\n  grade: input.grade,\n  overall_score: input.overall_score,\n  publication_ready: input.publication_ready,\n  \n  // Status\n  final_status: input.publication_ready ? 'passed' : 'needs_revision',\n  revision_flagged: !!input.revision_flag,\n  results_stored: !input.revision_flag,\n  \n  // Metrics\n  total_issues: input.qa_report?.all_issues?.length || 0,\n  critical_issues: input.qa_report?.critical_issues?.length || 0,\n  \n  // Component scores\n  component_scores: {\n    style: input.qa_report?.qa_checks?.style?.score || 0,\n    structure: input.qa_report?.qa_checks?.structure?.score || 0,\n    citations: input.qa_report?.qa_checks?.citations?.score || 0\n  },\n  \n  // Next actions\n  next_steps: input.publication_ready \n    ? ['Ready for expert review', 'Queue for publication pipeline']\n    : input.qa_report?.improvement_priorities || ['Address flagged issues', 'Re-submit for QA'],\n  \n  _log_timestamp: new Date().toISOString()\n};\n\n// Return final result\nreturn {\n  json: {\n    success: true,\n    workflow: 'qa-automation',\n    draft_id: input.draft_id,\n    draft_title: input.draft_title,\n    \n    // QA outcome\n    grade: input.grade,\n    overall_score: input.overall_score,\n    publication_ready: input.publication_ready,\n    \n    // Report\n    qa_report: input.qa_report,\n    \n    // Revision flag if applicable\n    revision_flag: input.revision_flag,\n    \n    // Completion log\n    completion_log: completionLog,\n    \n    _completed_at: new Date().toISOString()\n  }\n};"
+      },
+      "id": "log-completion",
+      "name": "Log Completion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2640, 300]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Initialize QA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize QA": {
+      "main": [
+        [
+          {
+            "node": "Load Evidence Package",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Evidence Package": {
+      "main": [
+        [
+          {
+            "node": "Parallel QA Checks Branch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parallel QA Checks Branch": {
+      "main": [
+        [
+          {
+            "node": "Ollama Agent for Style",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Ollama Agent for Citations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Llama 3.2 (Style)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Ollama Agent for Style",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Agent for Style": {
+      "main": [
+        [
+          {
+            "node": "Ollama Agent for Structure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Llama 3.2 (Structure)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Ollama Agent for Structure",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Agent for Structure": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Mistral (Citations)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Ollama Agent for Citations",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Agent for Citations": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Results": {
+      "main": [
+        [
+          {
+            "node": "Load Validation Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Validation Results": {
+      "main": [
+        [
+          {
+            "node": "Claude Agent for Quality Scoring",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Sonnet Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Claude Agent for Quality Scoring",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Agent for Quality Scoring": {
+      "main": [
+        [
+          {
+            "node": "Generate QA Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate QA Report": {
+      "main": [
+        [
+          {
+            "node": "Route by Grade",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Grade": {
+      "main": [
+        [
+          {
+            "node": "Store QA Results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Flag for Revision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store QA Results": {
+      "main": [
+        [
+          {
+            "node": "Log Completion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flag for Revision": {
+      "main": [
+        [
+          {
+            "node": "Log Completion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "FOAM",
+      "id": "foam-tag"
+    },
+    {
+      "name": "QA",
+      "id": "qa-tag"
+    },
+    {
+      "name": "Common",
+      "id": "common-tag"
+    }
+  ],
+  "versionId": "1.0.0",
+  "meta": {
+    "instanceId": "foam-n8n-instance",
+    "notes": "Quality Assurance automation workflow for FOAM content. Performs parallel QA checks (style compliance via Ollama Llama 3.2, structure validation via Ollama Llama 3.2, citation verification via Ollama Mistral), loads validation results from validation-system workflow, synthesizes quality scoring via Claude Sonnet (requires reasoning for weighted scoring), generates comprehensive QA report, and routes by grade (A/B pass to storage, C/D/F flagged for revision). Uses $vars.CLAUDE_API_KEY for Claude authentication."
+  }
+}

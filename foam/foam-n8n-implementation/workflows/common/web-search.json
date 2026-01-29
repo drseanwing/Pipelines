@@ -1,0 +1,160 @@
+{
+  "name": "FOAM Web Search (GPT-4o)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "notes": "Expects: { search_query, search_type?, max_results? }"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare search parameters\nconst input = $input.first().json;\n\nconst searchQuery = input.search_query || input.topic?.clinical_question || '';\nconst searchType = input.search_type || 'medical'; // medical, guidelines, trials, general\nconst maxResults = input.max_results || 10;\n\n// Enhance query based on search type\nlet enhancedQuery = searchQuery;\nif (searchType === 'medical') {\n  enhancedQuery = `${searchQuery} medical evidence research`;\n} else if (searchType === 'guidelines') {\n  enhancedQuery = `${searchQuery} clinical guidelines recommendations`;\n} else if (searchType === 'trials') {\n  enhancedQuery = `${searchQuery} randomized controlled trial RCT`;\n}\n\nreturn {\n  json: {\n    ...input,\n    _stage: 'web_search_prepared',\n    search_query: searchQuery,\n    enhanced_query: enhancedQuery,\n    search_type: searchType,\n    max_results: maxResults\n  }\n};"
+      },
+      "id": "prepare-search",
+      "name": "Prepare Search",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'Search the web for current medical evidence and information about: ' + $json.enhanced_query + '\\n\\nFind the most relevant and authoritative sources. Focus on:\\n- Recent clinical trials and meta-analyses\\n- Current clinical guidelines\\n- Reputable medical education resources\\n- Expert consensus statements\\n\\nFor each result, extract:\\n1. Title and URL\\n2. Key findings or recommendations\\n3. Source credibility assessment\\n4. Publication date if available\\n\\nReturn up to ' + $json.max_results + ' results.' }}",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "gpt4o-search",
+      "name": "GPT-4o Web Search",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "gpt4o-model",
+      "name": "GPT-4o Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [680, 500],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-credential",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "serp-tool",
+      "name": "SerpAPI Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolSerpApi",
+      "typeVersion": 1,
+      "position": [800, 500],
+      "credentials": {
+        "serpApi": {
+          "id": "serp-credential",
+          "name": "SerpAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse and structure web search results\nconst input = $input.first().json;\nconst agentOutput = input.output || input.text || '';\n\n// Structure the results\nconst results = {\n  request_id: input.request_id,\n  _stage: 'web_search_complete',\n  search_query: input.search_query,\n  search_type: input.search_type,\n  raw_output: agentOutput,\n  sources: [],\n  _web_search_complete: true\n};\n\n// Try to extract structured data from agent output\n// This is a best-effort extraction - agent output format may vary\nconst urlRegex = /https?:\\/\\/[^\\s<>\"']+/g;\nconst urls = agentOutput.match(urlRegex) || [];\n\nurls.forEach((url, index) => {\n  results.sources.push({\n    url,\n    source_type: 'web_search',\n    extraction_method: 'gpt4o_web_search',\n    index: index + 1\n  });\n});\n\nreturn { json: results };"
+      },
+      "id": "parse-results",
+      "name": "Parse Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [920, 300]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Prepare Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Search": {
+      "main": [
+        [
+          {
+            "node": "GPT-4o Web Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GPT-4o Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "GPT-4o Web Search",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SerpAPI Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "GPT-4o Web Search",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GPT-4o Web Search": {
+      "main": [
+        [
+          {
+            "node": "Parse Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "FOAM",
+      "id": "foam-tag"
+    },
+    {
+      "name": "Evidence",
+      "id": "evidence-tag"
+    },
+    {
+      "name": "Common",
+      "id": "common-tag"
+    }
+  ],
+  "versionId": "1.0.0",
+  "meta": {
+    "instanceId": "foam-n8n-instance",
+    "notes": "GPT-4o with SerpAPI for web search. Used to find current guidelines, recent trials, and medical education resources."
+  }
+}

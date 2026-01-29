@@ -1,0 +1,103 @@
+{
+  "name": "FOAM Webhook Configuration",
+  "version": "1.0.0",
+  "description": "Webhook configuration reference for FOAM content orchestration",
+  "webhooks": {
+    "main": {
+      "path": "foam/request",
+      "method": "POST",
+      "authentication": "headerAuth",
+      "description": "Main entry point for all FOAM content requests",
+      "headers": {
+        "required": {
+          "Authorization": "Bearer {{API_KEY}}",
+          "Content-Type": "application/json"
+        }
+      },
+      "request_schema": "$ref:schemas/topic-request.schema.json",
+      "response_schema": {
+        "success": {
+          "success": true,
+          "request_id": "uuid",
+          "status": "received|completed|failed",
+          "draft_id": "uuid (if completed)"
+        },
+        "error": {
+          "success": false,
+          "error": "error message"
+        }
+      }
+    },
+    "status": {
+      "path": "foam/status/{request_id}",
+      "method": "GET",
+      "authentication": "headerAuth",
+      "description": "Check status of a content request",
+      "response_schema": {
+        "request_id": "uuid",
+        "status": "foam.request_status enum",
+        "created_at": "ISO timestamp",
+        "updated_at": "ISO timestamp",
+        "draft_count": "integer",
+        "current_draft_id": "uuid or null"
+      }
+    },
+    "review_submit": {
+      "path": "foam/review/{review_id}",
+      "method": "POST",
+      "authentication": "headerAuth",
+      "description": "Submit expert review feedback",
+      "request_schema": "$ref:schemas/review-request.schema.json"
+    }
+  },
+  "authentication": {
+    "type": "headerAuth",
+    "config": {
+      "name": "Authorization",
+      "value": "Bearer {{FOAM_API_KEY}}"
+    },
+    "environment_variable": "FOAM_API_KEY"
+  },
+  "rate_limiting": {
+    "enabled": true,
+    "requests_per_minute": 10,
+    "burst_limit": 5
+  },
+  "cors": {
+    "enabled": false,
+    "allowed_origins": []
+  },
+  "sample_requests": {
+    "journal_club": {
+      "format": "journal-club",
+      "topic": {
+        "title": "TTM2 Trial Review",
+        "clinical_question": "In adult patients with out-of-hospital cardiac arrest, does targeted temperature management at 33C compared to normothermia improve neurological outcomes?",
+        "trial_reference": {
+          "pmid": "34161739",
+          "acronym": "TTM2"
+        }
+      },
+      "requestor": {
+        "name": "Sean",
+        "email": "sean@redi.org.au",
+        "institution": "Metro North Health"
+      },
+      "target_audience": "mixed",
+      "regional_context": "australia"
+    },
+    "case_based": {
+      "format": "case-based",
+      "topic": {
+        "title": "Vasopressor Selection in Septic Shock",
+        "clinical_question": "What is the optimal first-line vasopressor in septic shock after adequate fluid resuscitation?",
+        "case_scenario": "A 67-year-old man presents with confusion, fever 39.2C, HR 118, BP 78/45 despite 2L crystalloid..."
+      },
+      "requestor": {
+        "name": "Sean",
+        "email": "sean@redi.org.au",
+        "institution": "Metro North Health"
+      }
+    }
+  }
+}

@@ -1,0 +1,142 @@
+# PostgreSQL Exporter Custom Queries for FOAM N8N
+# Version: 1.0.0
+# Exposes FOAM-specific workflow metrics from PostgreSQL
+
+# =============================================================================
+# WORKFLOW EXECUTION METRICS
+# =============================================================================
+foam_workflow_executions:
+  query: |
+    SELECT
+      workflow_name,
+      status,
+      COUNT(*) as total_executions,
+      AVG(duration_ms) as avg_duration_ms,
+      SUM(tokens_used) as total_tokens
+    FROM foam.workflow_executions
+    WHERE started_at > NOW() - INTERVAL '1 hour'
+    GROUP BY workflow_name, status
+  metrics:
+    - workflow_name:
+        usage: "LABEL"
+        description: "Name of the workflow"
+    - status:
+        usage: "LABEL"
+        description: "Execution status"
+    - total_executions:
+        usage: "GAUGE"
+        description: "Total number of executions in the last hour"
+    - avg_duration_ms:
+        usage: "GAUGE"
+        description: "Average execution duration in milliseconds"
+    - total_tokens:
+        usage: "GAUGE"
+        description: "Total tokens used in the last hour"
+
+# =============================================================================
+# ERROR TRACKING
+# =============================================================================
+foam_error_count:
+  query: |
+    SELECT
+      workflow_name,
+      error_type,
+      COUNT(*) as error_count
+    FROM foam.error_log
+    WHERE occurred_at > NOW() - INTERVAL '1 hour'
+    AND resolved = false
+    GROUP BY workflow_name, error_type
+  metrics:
+    - workflow_name:
+        usage: "LABEL"
+        description: "Workflow name"
+    - error_type:
+        usage: "LABEL"
+        description: "Type of error"
+    - error_count:
+        usage: "GAUGE"
+        description: "Number of unresolved errors"
+
+# =============================================================================
+# REQUEST STATUS METRICS
+# =============================================================================
+foam_request_status:
+  query: |
+    SELECT
+      status::text,
+      format::text,
+      COUNT(*) as request_count
+    FROM foam.topic_requests
+    WHERE created_at > NOW() - INTERVAL '24 hours'
+    GROUP BY status, format
+  metrics:
+    - status:
+        usage: "LABEL"
+        description: "Request status"
+    - format:
+        usage: "LABEL"
+        description: "Content format"
+    - request_count:
+        usage: "GAUGE"
+        description: "Number of requests"
+
+# =============================================================================
+# ACTIVE WORKFLOWS
+# =============================================================================
+foam_active_workflows:
+  query: |
+    SELECT
+      COUNT(DISTINCT request_id) as active_requests,
+      COUNT(DISTINCT CASE WHEN status IN ('researching', 'drafting') THEN request_id END) as in_progress
+    FROM foam.topic_requests
+    WHERE status NOT IN ('published', 'cancelled', 'failed')
+  metrics:
+    - active_requests:
+        usage: "GAUGE"
+        description: "Total active content requests"
+    - in_progress:
+        usage: "GAUGE"
+        description: "Requests currently being processed"
+
+# =============================================================================
+# REVIEW QUEUE
+# =============================================================================
+foam_review_queue:
+  query: |
+    SELECT
+      approval_status::text,
+      COUNT(*) as review_count
+    FROM foam.reviews
+    WHERE requested_at > NOW() - INTERVAL '7 days'
+    GROUP BY approval_status
+  metrics:
+    - approval_status:
+        usage: "LABEL"
+        description: "Review approval status"
+    - review_count:
+        usage: "GAUGE"
+        description: "Number of reviews in each status"
+
+# =============================================================================
+# DATABASE SIZE METRICS
+# =============================================================================
+foam_database_size:
+  query: |
+    SELECT
+      pg_database_size('n8n') as database_size_bytes,
+      (SELECT COUNT(*) FROM foam.topic_requests) as total_requests,
+      (SELECT COUNT(*) FROM foam.drafts) as total_drafts,
+      (SELECT COUNT(*) FROM foam.reviews) as total_reviews
+  metrics:
+    - database_size_bytes:
+        usage: "GAUGE"
+        description: "Total database size in bytes"
+    - total_requests:
+        usage: "GAUGE"
+        description: "Total number of topic requests"
+    - total_drafts:
+        usage: "GAUGE"
+        description: "Total number of drafts"
+    - total_reviews:
+        usage: "GAUGE"
+        description: "Total number of reviews"

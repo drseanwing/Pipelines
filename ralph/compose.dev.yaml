@@ -1,0 +1,18 @@
+# Docker Compose override for development
+# This file adds bind mounts for local development
+# Use: docker compose -f compose.yaml -f compose.dev.yaml up
+
+services:
+  ralph:
+    # Override volumes to include bind mount for development
+    volumes:
+      # Persistent Ralph state - logs, progress, guardrails
+      - ralph-state:/app/.ralph
+      # Persistent task definitions (PRDs)
+      - ralph-tasks:/app/.agents/tasks
+      # Bind mount the repository for live code editing
+      # Note: This may have permission issues with rootless Docker
+      # The named volumes will still work correctly for state persistence
+      - .:/app
+    environment:
+      - NODE_ENV=development

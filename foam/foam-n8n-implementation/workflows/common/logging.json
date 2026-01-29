@@ -1,0 +1,243 @@
+{
+  "name": "FOAM Logging Service",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "log-input",
+      "name": "Log Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "notes": "Receives log entries from parent workflows"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format and validate log entry\n// Based on code/utils/logging.js\n\nconst input = $input.first().json;\n\nconst LOG_LEVELS = {\n  DEBUG: 0,\n  INFO: 1,\n  WARN: 2,\n  ERROR: 3\n};\n\n// Normalize log entry\nconst entry = {\n  log_id: 'log_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5),\n  timestamp: input.timestamp || new Date().toISOString(),\n  level: (input.level || 'INFO').toUpperCase(),\n  message: input.message || 'No message provided',\n  request_id: input.request_id || input.requestId || null,\n  workflow_name: input.workflow_name || input.workflowName || null,\n  node_name: input.node_name || input.nodeName || null,\n  model_used: input.model_used || input.modelUsed || null,\n  tokens_used: input.tokens_used || input.tokensUsed || null,\n  execution_time_ms: input.execution_time_ms || input.executionTime || null,\n  data: input.data || null\n};\n\n// Format as string for console output\nconst parts = [\n  `[${entry.timestamp}]`,\n  `[${entry.level}]`\n];\n\nif (entry.request_id) {\n  parts.push(`[${entry.request_id.substring(0, 8)}]`);\n}\n\nif (entry.node_name) {\n  parts.push(`[${entry.node_name}]`);\n}\n\nparts.push(entry.message);\n\nconst metrics = [];\nif (entry.model_used) metrics.push(`Model: ${entry.model_used}`);\nif (entry.tokens_used) metrics.push(`Tokens: ${entry.tokens_used}`);\nif (entry.execution_time_ms) metrics.push(`Time: ${entry.execution_time_ms}ms`);\n\nif (metrics.length > 0) {\n  parts.push(`| ${metrics.join(' | ')}`);\n}\n\nentry.formatted_string = parts.join(' ');\n\nreturn { json: entry };"
+      },
+      "id": "format-log",
+      "name": "Format Log Entry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.level }}",
+                    "rightValue": "ERROR",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Error"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.level }}",
+                    "rightValue": "WARN",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Warning"
+            }
+          ],
+          "fallbackOutput": {
+            "enabled": true,
+            "outputKey": "Info/Debug"
+          }
+        }
+      },
+      "id": "route-by-level",
+      "name": "Route by Level",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "foam",
+        "table": "workflow_logs",
+        "columns": "log_id, request_id, workflow_name, node_name, level, message, model_used, tokens_used, execution_time_ms, data",
+        "options": {}
+      },
+      "id": "store-all-logs",
+      "name": "Store to Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [900, 440],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credential",
+          "name": "PostgreSQL FOAM"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "channel": "#foam-errors",
+        "text": "={{ $json.formatted_string }}",
+        "otherOptions": {}
+      },
+      "id": "slack-error",
+      "name": "Slack Error Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [900, 160],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-credential",
+          "name": "Slack FOAM"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "channel": "#foam-warnings",
+        "text": "={{ $json.formatted_string }}",
+        "otherOptions": {}
+      },
+      "id": "slack-warning",
+      "name": "Slack Warning",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [900, 300],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-credential",
+          "name": "Slack FOAM"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return acknowledgment\nconst input = $input.first().json;\n\nreturn {\n  json: {\n    logged: true,\n    log_id: input.log_id,\n    level: input.level,\n    timestamp: input.timestamp\n  }\n};"
+      },
+      "id": "merge-return",
+      "name": "Return Acknowledgment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "Log Input": {
+      "main": [
+        [
+          {
+            "node": "Format Log Entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Log Entry": {
+      "main": [
+        [
+          {
+            "node": "Route by Level",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Level": {
+      "main": [
+        [
+          {
+            "node": "Slack Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack Warning",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Store to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Error Alert": {
+      "main": [
+        [
+          {
+            "node": "Store to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Warning": {
+      "main": [
+        [
+          {
+            "node": "Store to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store to Database": {
+      "main": [
+        [
+          {
+            "node": "Return Acknowledgment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "FOAM",
+      "id": "foam-tag"
+    },
+    {
+      "name": "Logging",
+      "id": "logging-tag"
+    },
+    {
+      "name": "Common",
+      "id": "common-tag"
+    }
+  ],
+  "versionId": "1.0.0",
+  "meta": {
+    "instanceId": "foam-n8n-instance",
+    "notes": "Reusable logging sub-workflow. Routes logs by level and stores to database."
+  }
+}

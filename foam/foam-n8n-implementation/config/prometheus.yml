@@ -1,0 +1,123 @@
+# FOAM N8N Monitoring - Prometheus Configuration
+# Version: 1.0.0
+# Monitors all FOAM system components and custom workflow metrics
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: 'production'
+    system: 'foam-n8n'
+
+# Alertmanager configuration (optional)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#           - alertmanager:9093
+
+# Load alerting rules
+rule_files:
+  - '/etc/prometheus/alerting-rules.yml'
+
+scrape_configs:
+  # =============================================================================
+  # PROMETHEUS SELF-MONITORING
+  # =============================================================================
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # =============================================================================
+  # N8N METRICS (via custom exporter or /metrics endpoint if available)
+  # =============================================================================
+  # Note: N8N doesn't have native Prometheus metrics yet
+  # This is a placeholder for future implementation or custom exporter
+  - job_name: 'n8n'
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['n8n:5678']
+    metrics_path: '/metrics'
+    # N8N may require basic auth
+    basic_auth:
+      username: '${N8N_USER}'
+      password: '${N8N_PASSWORD}'
+    # Disable if endpoint doesn't exist
+    # honor_labels: true
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'n8n_.*'
+        action: keep
+
+  # =============================================================================
+  # POSTGRESQL METRICS
+  # =============================================================================
+  - job_name: 'postgres'
+    scrape_interval: 20s
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'postgres-db'
+
+  # =============================================================================
+  # DOCKER CONTAINER METRICS (cAdvisor)
+  # =============================================================================
+  - job_name: 'cadvisor'
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['cadvisor:8080']
+    metric_relabel_configs:
+      # Keep only relevant container metrics
+      - source_labels: [container_label_com_docker_compose_service]
+        regex: '(n8n|postgres|ollama|grafana|prometheus).*'
+        action: keep
+
+  # =============================================================================
+  # NODE EXPORTER (Host Metrics)
+  # =============================================================================
+  - job_name: 'node'
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['node-exporter:9100']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'docker-host'
+
+  # =============================================================================
+  # OLLAMA METRICS (if available)
+  # =============================================================================
+  # Ollama may expose metrics on port 11434
+  - job_name: 'ollama'
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['ollama:11434']
+    metrics_path: '/metrics'
+    # This may need adjustment based on actual Ollama metrics endpoint
+
+  # =============================================================================
+  # CUSTOM FOAM WORKFLOW METRICS
+  # =============================================================================
+  # This assumes a custom exporter that queries PostgreSQL for workflow stats
+  - job_name: 'foam-workflows'
+    scrape_interval: 60s
+    static_configs:
+      - targets: ['postgres-custom-exporter:9999']
+    metrics_path: '/metrics'
+    # Custom exporter would expose:
+    # - foam_workflow_executions_total
+    # - foam_workflow_duration_seconds
+    # - foam_workflow_errors_total
+    # - foam_api_cost_total
+    # - foam_tokens_used_total
+
+  # =============================================================================
+  # GRAFANA SELF-MONITORING
+  # =============================================================================
+  - job_name: 'grafana'
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['grafana:3000']
+    metrics_path: '/metrics'

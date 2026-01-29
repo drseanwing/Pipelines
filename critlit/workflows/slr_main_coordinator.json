@@ -1,0 +1,439 @@
+{
+  "name": "SLR Main Coordinator",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "slr-start",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger-node",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "webhookId": "slr-coordinator-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT r.*, ws.workflow_stage, ws.checkpoint_data, ws.items_processed, ws.items_total, ws.updated_at as checkpoint_updated_at\nFROM reviews r\nLEFT JOIN workflow_state ws ON r.id = ws.review_id\nWHERE r.id = $1::uuid\nORDER BY ws.updated_at DESC\nLIMIT 1;",
+        "options": {}
+      },
+      "id": "load-review-state-node",
+      "name": "Load Review State",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-slr-database",
+          "name": "SLR PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "review-id-assignment",
+              "name": "review_id",
+              "value": "={{ $('Webhook Trigger').item.json.body.review_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "extract-review-id-node",
+      "name": "Extract Review ID",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [350, 300]
+    },
+    {
+      "parameters": {
+        "systemMessage": "You are the SLR Coordinator Agent for an autonomous systematic literature review pipeline.\n\nYour role is to:\n1. Analyze the current review state and checkpoint data\n2. Determine the next appropriate pipeline stage\n3. Route the workflow to the correct sub-workflow\n4. Ensure checkpoint/resume capability is maintained\n\nAvailable pipeline stages:\n- protocol_setup: PICO refinement and PROSPERO registration\n- search_execution: Execute PubMed search and store documents\n- screening_ta: Title/abstract screening with AI agent\n- screening_ft: Full-text screening (out of scope for alpha)\n- data_extraction: Structured data extraction (out of scope for alpha)\n- rob_assessment: Risk of bias assessment (out of scope for alpha)\n- synthesis: GRADE and narrative synthesis (out of scope for alpha)\n- prisma_generation: Generate PRISMA flow diagram (out of scope for alpha)\n- human_review: Route to human review checkpoint\n- complete: Review completed\n\nBased on the review state, respond with JSON:\n{\n  \"next_stage\": \"<stage_name>\",\n  \"reason\": \"<reasoning for this stage>\",\n  \"checkpoint_required\": true/false\n}\n\nFor alpha version, focus on: protocol_setup -> search_execution -> screening_ta -> human_review -> complete",
+        "maxIterations": 5,
+        "options": {}
+      },
+      "id": "coordinator-agent-node",
+      "name": "Coordinator Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "id": "route-to-protocol",
+              "operation": "equals",
+              "value1": "={{ $json.next_stage }}",
+              "value2": "protocol_setup",
+              "output": 0
+            },
+            {
+              "id": "route-to-search",
+              "operation": "equals",
+              "value1": "={{ $json.next_stage }}",
+              "value2": "search_execution",
+              "output": 1
+            },
+            {
+              "id": "route-to-screening",
+              "operation": "equals",
+              "value1": "={{ $json.next_stage }}",
+              "value2": "screening_ta",
+              "output": 2
+            },
+            {
+              "id": "route-to-human-review",
+              "operation": "equals",
+              "value1": "={{ $json.next_stage }}",
+              "value2": "human_review",
+              "output": 3
+            },
+            {
+              "id": "route-to-complete",
+              "operation": "equals",
+              "value1": "={{ $json.next_stage }}",
+              "value2": "complete",
+              "output": 4
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "stage-router-node",
+      "name": "Stage Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.PROTOCOL_WORKFLOW_ID }}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "execute-protocol-workflow-node",
+      "name": "Execute Protocol Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1050, 100]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.SEARCH_WORKFLOW_ID }}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "execute-search-workflow-node",
+      "name": "Execute Search Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1050, 200]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.SCREENING_WORKFLOW_ID }}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "execute-screening-workflow-node",
+      "name": "Execute Screening Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "resume": "form",
+        "formTitle": "SLR Human Review Required",
+        "formDescription": "Review the current stage results before proceeding to the next stage.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Decision",
+              "fieldType": "dropdown",
+              "requiredField": true,
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Approve"
+                  },
+                  {
+                    "option": "Revise"
+                  },
+                  {
+                    "option": "Escalate"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldLabel": "Comments",
+              "fieldType": "text",
+              "requiredField": false,
+              "fieldOptions": {
+                "multiline": true
+              }
+            }
+          ]
+        },
+        "options": {
+          "limitWaitTime": true,
+          "limitAmount": 72,
+          "limitUnit": "hours"
+        }
+      },
+      "id": "human-review-wait-node",
+      "name": "Human Review Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1050, 400],
+      "webhookId": "slr-human-review-webhook"
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "workflow-complete-node",
+      "name": "Workflow Complete",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1050, 500]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO workflow_state (review_id, execution_id, workflow_stage, checkpoint_data, items_processed, items_total, status, updated_at)\nVALUES (\n  $1::uuid,\n  $2::text,\n  $3::text,\n  $4::jsonb,\n  $5::integer,\n  $6::integer,\n  $7::text,\n  NOW()\n)\nON CONFLICT (review_id, execution_id)\nDO UPDATE SET\n  workflow_stage = EXCLUDED.workflow_stage,\n  checkpoint_data = EXCLUDED.checkpoint_data,\n  items_processed = EXCLUDED.items_processed,\n  items_total = EXCLUDED.items_total,\n  status = EXCLUDED.status,\n  updated_at = NOW()\nRETURNING *;",
+        "options": {}
+      },
+      "id": "save-checkpoint-node",
+      "name": "Save Checkpoint",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1250, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-slr-database",
+          "name": "SLR PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "checkpoint-review-id",
+              "name": "review_id",
+              "value": "={{ $('Load Review State').item.json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "checkpoint-execution-id",
+              "name": "execution_id",
+              "value": "={{ $workflow.id }}-{{ $workflow.executionId }}",
+              "type": "string"
+            },
+            {
+              "id": "checkpoint-stage",
+              "name": "workflow_stage",
+              "value": "={{ $('Coordinator Agent').item.json.next_stage }}",
+              "type": "string"
+            },
+            {
+              "id": "checkpoint-data",
+              "name": "checkpoint_data",
+              "value": "={{ $json }}",
+              "type": "object"
+            },
+            {
+              "id": "checkpoint-items-processed",
+              "name": "items_processed",
+              "value": "={{ $json.items_processed || 0 }}",
+              "type": "number"
+            },
+            {
+              "id": "checkpoint-items-total",
+              "name": "items_total",
+              "value": "={{ $json.items_total || 0 }}",
+              "type": "number"
+            },
+            {
+              "id": "checkpoint-status",
+              "name": "status",
+              "value": "paused",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "prepare-checkpoint-data-node",
+      "name": "Prepare Checkpoint Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [1150, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Review ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Review ID": {
+      "main": [
+        [
+          {
+            "node": "Load Review State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Review State": {
+      "main": [
+        [
+          {
+            "node": "Coordinator Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Coordinator Agent": {
+      "main": [
+        [
+          {
+            "node": "Stage Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage Router": {
+      "main": [
+        [
+          {
+            "node": "Execute Protocol Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute Search Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute Screening Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Human Review Wait",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Workflow Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Protocol Workflow": {
+      "main": [
+        [
+          {
+            "node": "Prepare Checkpoint Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Search Workflow": {
+      "main": [
+        [
+          {
+            "node": "Prepare Checkpoint Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Screening Workflow": {
+      "main": [
+        [
+          {
+            "node": "Prepare Checkpoint Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Human Review Wait": {
+      "main": [
+        [
+          {
+            "node": "Prepare Checkpoint Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Checkpoint Data": {
+      "main": [
+        [
+          {
+            "node": "Save Checkpoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-01-24T14:17:58.607Z",
+  "versionId": "1"
+}

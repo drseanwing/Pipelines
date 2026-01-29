@@ -1,0 +1,141 @@
+{
+  "name": "FOAM Resource Scraper",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "notes": "Expects: { search_term, topic? }"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare FOAM resource search\nconst input = $input.first().json;\n\nconst searchTerm = input.search_term || input.topic?.title || input.topic?.clinical_question || '';\n\n// Clean search term for URL encoding\nconst cleanedTerm = encodeURIComponent(searchTerm.replace(/[^a-zA-Z0-9\\s]/g, '').trim());\n\n// Define FOAM resources to search\nconst foamResources = [\n  {\n    name: 'LITFL',\n    searchUrl: `https://litfl.com/?s=${cleanedTerm}`,\n    baseUrl: 'https://litfl.com',\n    type: 'foam_blog'\n  },\n  {\n    name: 'EMCrit',\n    searchUrl: `https://emcrit.org/?s=${cleanedTerm}`,\n    baseUrl: 'https://emcrit.org',\n    type: 'foam_podcast'\n  },\n  {\n    name: 'EM Cases',\n    searchUrl: `https://emergencymedicinecases.com/?s=${cleanedTerm}`,\n    baseUrl: 'https://emergencymedicinecases.com',\n    type: 'foam_podcast'\n  },\n  {\n    name: 'Rebel EM',\n    searchUrl: `https://rebelem.com/?s=${cleanedTerm}`,\n    baseUrl: 'https://rebelem.com',\n    type: 'foam_blog'\n  },\n  {\n    name: 'St Emlyns',\n    searchUrl: `https://www.stemlynsblog.org/?s=${cleanedTerm}`,\n    baseUrl: 'https://www.stemlynsblog.org',\n    type: 'foam_blog'\n  },\n  {\n    name: 'First10EM',\n    searchUrl: `https://first10em.com/?s=${cleanedTerm}`,\n    baseUrl: 'https://first10em.com',\n    type: 'foam_blog'\n  }\n];\n\nreturn {\n  json: {\n    ...input,\n    _stage: 'foam_search_prepared',\n    search_term: searchTerm,\n    cleaned_term: cleanedTerm,\n    foam_resources: foamResources\n  }\n};"
+      },
+      "id": "prepare-foam-search",
+      "name": "Prepare FOAM Search",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 3,
+        "options": {}
+      },
+      "id": "split-resources",
+      "name": "Split Resources",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3.1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.foam_resources[$itemIndex % $json.foam_resources.length].searchUrl }}",
+        "options": {
+          "timeout": 15000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true,
+              "maxRedirects": 3
+            }
+          }
+        },
+        "onError": "continueRegularOutput"
+      },
+      "id": "fetch-foam-page",
+      "name": "Fetch FOAM Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse FOAM search results from HTML\nconst items = $input.all();\nconst allResults = [];\n\nfor (const item of items) {\n  const html = item.json.data || item.json.body || '';\n  const resourceInfo = item.json.foam_resources?.[0] || { name: 'Unknown', baseUrl: '' };\n  \n  // Simple extraction of article links\n  // Look for common WordPress blog post patterns\n  const articleRegex = /<article[^>]*>[\\s\\S]*?<a[^>]*href=\"([^\"]+)\"[^>]*>([^<]*)<\\/a>/gi;\n  const titleRegex = /<h[123][^>]*class=\"[^\"]*entry-title[^\"]*\"[^>]*>[\\s\\S]*?<a[^>]*href=\"([^\"]+)\"[^>]*>([^<]*)<\\/a>/gi;\n  \n  let match;\n  const seen = new Set();\n  \n  // Try title regex first (more specific)\n  while ((match = titleRegex.exec(html)) !== null) {\n    const url = match[1];\n    const title = match[2].trim();\n    \n    if (!seen.has(url) && url.includes(resourceInfo.baseUrl) && title.length > 5) {\n      seen.add(url);\n      allResults.push({\n        resource: resourceInfo.name,\n        title: title,\n        url: url,\n        type: resourceInfo.type\n      });\n    }\n  }\n  \n  // Fallback to article regex\n  if (seen.size === 0) {\n    while ((match = articleRegex.exec(html)) !== null) {\n      const url = match[1];\n      const title = match[2].trim();\n      \n      if (!seen.has(url) && title.length > 5 && !url.includes('#')) {\n        seen.add(url);\n        allResults.push({\n          resource: resourceInfo.name,\n          title: title,\n          url: url,\n          type: resourceInfo.type\n        });\n      }\n    }\n  }\n}\n\n// Dedupe and limit results\nconst uniqueResults = [];\nconst seenUrls = new Set();\n\nfor (const result of allResults) {\n  if (!seenUrls.has(result.url)) {\n    seenUrls.add(result.url);\n    uniqueResults.push(result);\n  }\n}\n\nreturn {\n  json: {\n    request_id: items[0]?.json?.request_id,\n    _stage: 'foam_crossrefs_found',\n    search_term: items[0]?.json?.search_term,\n    foamed_crossrefs: uniqueResults.slice(0, 15),\n    total_found: uniqueResults.length,\n    _foam_search_complete: true\n  }\n};"
+      },
+      "id": "parse-foam-results",
+      "name": "Parse FOAM Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Prepare FOAM Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare FOAM Search": {
+      "main": [
+        [
+          {
+            "node": "Split Resources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Resources": {
+      "main": [
+        [
+          {
+            "node": "Fetch FOAM Page",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parse FOAM Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch FOAM Page": {
+      "main": [
+        [
+          {
+            "node": "Split Resources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "FOAM",
+      "id": "foam-tag"
+    },
+    {
+      "name": "Evidence",
+      "id": "evidence-tag"
+    },
+    {
+      "name": "Common",
+      "id": "common-tag"
+    }
+  ],
+  "versionId": "1.0.0",
+  "meta": {
+    "instanceId": "foam-n8n-instance",
+    "notes": "Scrapes major FOAM resources (LITFL, EMCrit, EM Cases, etc.) for relevant cross-references."
+  }
+}

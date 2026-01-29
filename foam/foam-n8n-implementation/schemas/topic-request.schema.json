@@ -1,0 +1,219 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://redi.health.qld.gov.au/foam/schemas/topic-request.json",
+  "title": "FOAMTopicRequest",
+  "description": "Schema for incoming FOAM content generation requests",
+  "type": "object",
+  "required": ["format", "topic", "requestor"],
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for tracking the request through the pipeline"
+    },
+    "format": {
+      "type": "string",
+      "enum": ["case-based", "journal-club", "clinical-review"],
+      "description": "The type of FOAM content to generate"
+    },
+    "topic": {
+      "type": "object",
+      "required": ["title", "clinical_question"],
+      "properties": {
+        "title": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Working title for the content piece"
+        },
+        "clinical_question": {
+          "type": "string",
+          "description": "The core clinical question, preferably in PICO format for journal club"
+        },
+        "trial_reference": {
+          "type": "object",
+          "description": "For journal-club format: the trial to review",
+          "properties": {
+            "doi": {
+              "type": "string",
+              "pattern": "^10\\.\\d{4,}/.*$"
+            },
+            "pmid": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "title": {
+              "type": "string"
+            },
+            "acronym": {
+              "type": "string",
+              "description": "Trial acronym if known (e.g., ARISE, TTM2)"
+            }
+          }
+        },
+        "case_scenario": {
+          "type": "object",
+          "description": "For case-based format: the initial presentation",
+          "properties": {
+            "age": {
+              "type": "string"
+            },
+            "sex": {
+              "type": "string"
+            },
+            "setting": {
+              "type": "string",
+              "description": "e.g., ED, prehospital, ICU"
+            },
+            "chief_complaint": {
+              "type": "string"
+            },
+            "initial_vitals": {
+              "type": "object",
+              "properties": {
+                "hr": { "type": "string" },
+                "bp": { "type": "string" },
+                "rr": { "type": "string" },
+                "spo2": { "type": "string" },
+                "temp": { "type": "string" },
+                "gcs": { "type": "string" }
+              }
+            },
+            "key_history": {
+              "type": "string"
+            },
+            "key_exam_findings": {
+              "type": "string"
+            }
+          }
+        },
+        "scope_notes": {
+          "type": "string",
+          "description": "What to include/exclude from the content"
+        },
+        "keywords": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Search keywords for evidence retrieval"
+        },
+        "related_conditions": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Related diagnoses or conditions to consider"
+        }
+      }
+    },
+    "requestor": {
+      "type": "object",
+      "required": ["name", "email"],
+      "properties": {
+        "name": { 
+          "type": "string",
+          "description": "Name of the person requesting the content"
+        },
+        "email": { 
+          "type": "string", 
+          "format": "email",
+          "description": "Contact email for updates and review requests"
+        },
+        "institution": { 
+          "type": "string",
+          "description": "Affiliated institution"
+        },
+        "role": {
+          "type": "string",
+          "description": "Clinical role (e.g., ED Registrar, ICU Consultant)"
+        }
+      }
+    },
+    "target_audience": {
+      "type": "string",
+      "enum": ["paramedic", "ed-nurse", "registrar", "consultant", "mixed"],
+      "default": "mixed",
+      "description": "Primary target audience for tone calibration"
+    },
+    "urgency": {
+      "type": "string",
+      "enum": ["routine", "priority", "urgent"],
+      "default": "routine",
+      "description": "Processing priority"
+    },
+    "regional_context": {
+      "type": "string",
+      "enum": ["australia", "uk", "canada", "usa", "international"],
+      "default": "australia",
+      "description": "Primary regional context for guideline references"
+    },
+    "suggested_reviewers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "credentials": { "type": "string" },
+          "speciality": { "type": "string" }
+        }
+      },
+      "description": "Suggested expert peer reviewers"
+    },
+    "additional_resources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["pdf", "url", "pmid", "guideline"]
+          },
+          "reference": { "type": "string" },
+          "notes": { "type": "string" }
+        }
+      },
+      "description": "Additional resources to incorporate"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Request creation timestamp"
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "How the request was submitted (webhook, manual, api)"
+        },
+        "version": {
+          "type": "string",
+          "description": "Schema version"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "format": { "const": "journal-club" } }
+      },
+      "then": {
+        "properties": {
+          "topic": {
+            "required": ["trial_reference"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "format": { "const": "case-based" } }
+      },
+      "then": {
+        "properties": {
+          "topic": {
+            "required": ["case_scenario"]
+          }
+        }
+      }
+    }
+  ]
+}

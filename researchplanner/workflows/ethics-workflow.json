@@ -1,0 +1,442 @@
+{
+  "name": "QI-Research Pipeline: Ethics Stage",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "ethics-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract project, research, and methodology data for ethics evaluation\nconst input = $input.first().json;\n\nif (!input.project || !input.methodology) {\n  throw new Error('Missing required project or methodology data from previous stages');\n}\n\nreturn [{\n  json: {\n    project_id: input.project.id,\n    project: input.project,\n    research: input.research,\n    methodology: input.methodology,\n    classification: input.project.classification,\n    intake: input.project.intake\n  }\n}];"
+      },
+      "id": "extract-context",
+      "name": "Extract Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "maxTokens": 2500,
+          "temperature": 0.2
+        },
+        "messages": {
+          "messageValues": [
+            {
+              "message": "={{ `You are an expert in research ethics and governance for Australian healthcare settings. Determine the appropriate ethics approval pathway.\n\n## Project Classification\nType: ${$json.classification.project_type}\nFramework: ${$json.project.frameworks.ethics_framework}\n\n## Study Design\nType: ${$json.methodology.study_design.type}\nIs Randomised: ${$json.methodology.study_design.is_randomised}\n\n## Participants\nVulnerable Population: ${$json.methodology.participants.vulnerable_population}\nCapacity Issues: ${$json.methodology.participants.capacity_issues}\nSample Size: ${$json.methodology.participants.sample_size.target || 'Not specified'}\n\n## Data Collection\nIncludes Identifiable Data: ${$json.methodology.data_collection.includes_identifiable_data}\nIdentifiable Elements: ${JSON.stringify($json.methodology.data_collection.identifiable_elements || [])}\n\n## Setting\n${$json.intake.setting}\nInstitution: ${$json.intake.principal_investigator.institution}\n\n## Number of Sites\n${$json.methodology.setting_sites ? $json.methodology.setting_sites.length : 1}\n\n## Ethics Pathways (Australian Context)\n\n### QI_REGISTRATION\n- For quality improvement projects\n- No HREC required\n- Unit Director approval\n- 2-4 weeks timeline\n\n### LOW_RISK_RESEARCH (LNR)\n- Research with no more than low risk\n- No physical interventions\n- No vulnerable populations without extra protections\n- Hospital LNR Committee review\n- 4-6 weeks timeline\n\n### FULL_HREC_REVIEW\n- Greater than low risk research\n- Vulnerable populations\n- Clinical trials\n- Multi-site studies\n- 8-16 weeks timeline\n\n## Risk Level Criteria (National Statement)\n- NEGLIGIBLE: No foreseeable risk, anonymised data only\n- LOW: Only discomfort, no serious adverse effects anticipated\n- MODERATE: Potential for adverse effects, mitigations in place\n- HIGH: Significant risk of harm, clinical trial, vulnerable groups\n\n## Task\nDetermine the appropriate ethics pathway with full justification.\n\nRespond ONLY with valid JSON:\n{\n  \"ethics_pathway\": {\n    \"pathway\": \"QI_REGISTRATION|LOW_RISK_RESEARCH|FULL_HREC_REVIEW|HYBRID_REVIEW\",\n    \"approval_body\": \"name of approving body\",\n    \"requires_hrec\": true|false,\n    \"requires_rgo\": true|false,\n    \"estimated_timeline\": \"X-Y weeks\",\n    \"forms\": [\"form 1\", \"form 2\"],\n    \"justification\": \"detailed explanation of pathway selection\",\n    \"status\": \"NOT_STARTED\"\n  },\n  \"pathway_considerations\": [\n    {\n      \"factor\": \"factor name\",\n      \"assessment\": \"how this factor was assessed\",\n      \"impact_on_pathway\": \"how it influenced the decision\"\n    }\n  ],\n  \"alternative_pathways\": [\n    {\n      \"pathway\": \"alternative\",\n      \"why_not_selected\": \"reason\"\n    }\n  ]\n}` }}"
+            }
+          ]
+        }
+      },
+      "id": "determine-pathway",
+      "name": "LLM: Determine Ethics Pathway",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [690, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credentials",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse ethics pathway response\nconst input = $input.first().json;\nconst llmResponse = $('LLM: Determine Ethics Pathway').first().json.message.content;\n\nlet pathwayResult;\ntry {\n  let jsonStr = llmResponse;\n  const jsonMatch = llmResponse.match(/```json\\n?([\\s\\S]*?)\\n?```/);\n  if (jsonMatch) {\n    jsonStr = jsonMatch[1];\n  }\n  pathwayResult = JSON.parse(jsonStr);\n} catch (e) {\n  throw new Error(`Failed to parse ethics pathway: ${e.message}`);\n}\n\nreturn [{\n  json: {\n    ...input,\n    ethics_pathway: pathwayResult.ethics_pathway,\n    pathway_considerations: pathwayResult.pathway_considerations,\n    alternative_pathways: pathwayResult.alternative_pathways\n  }\n}];"
+      },
+      "id": "parse-pathway",
+      "name": "Parse Ethics Pathway",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [910, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "maxTokens": 3000,
+          "temperature": 0.2
+        },
+        "messages": {
+          "messageValues": [
+            {
+              "message": "={{ `You are an expert in research ethics applying the Australian NHMRC National Statement on Ethical Conduct in Human Research. Conduct a risk assessment.\n\n## Study Design\nType: ${$json.methodology.study_design.type}\nIntervention: ${$json.methodology.procedures.intervention_description || 'No intervention'}\n\n## Participants\nVulnerable Population: ${$json.methodology.participants.vulnerable_population}\nVulnerability Considerations: ${$json.methodology.participants.vulnerability_considerations || 'None specified'}\nCapacity Issues: ${$json.methodology.participants.capacity_issues}\n\n## Procedures\n${JSON.stringify($json.methodology.procedures.phases.map(p => p.phase_name + ': ' + p.activities.join(', ')))}\n\n## Data Collection\nData Types: ${$json.methodology.data_collection.data_types.join(', ')}\nIncludes Identifiable Data: ${$json.methodology.data_collection.includes_identifiable_data}\n\n## Risk Categories per National Statement\n1. Physical risk (harm, injury, discomfort)\n2. Psychological risk (anxiety, distress, embarrassment)\n3. Social risk (stigmatisation, discrimination)\n4. Economic risk (financial loss, employment)\n5. Legal risk (criminal/civil liability)\n\n## Risk Levels\n- NEGLIGIBLE: No foreseeable risk of harm or discomfort\n- LOW: Only discomfort, risks can be mitigated\n- MODERATE: Potential for more than discomfort, mitigations in place\n- HIGH: Significant potential for harm\n\n## Task\nConduct a comprehensive risk assessment per the National Statement.\n\nRespond ONLY with valid JSON:\n{\n  \"risk_assessment\": {\n    \"level\": \"NEGLIGIBLE|LOW|MODERATE|HIGH\",\n    \"factors\": [\n      {\n        \"category\": \"physical|psychological|social|economic|legal\",\n        \"specific_risk\": \"description of specific risk\",\n        \"likelihood\": \"rare|unlikely|possible|likely|almost_certain\",\n        \"consequence\": \"negligible|minor|moderate|major|severe\",\n        \"risk_level\": \"negligible|low|moderate|high\",\n        \"mitigation\": \"how this risk will be mitigated\",\n        \"residual_risk\": \"risk level after mitigation\"\n      }\n    ],\n    \"overall_justification\": \"summary of risk assessment reasoning\",\n    \"national_statement_reference\": \"relevant chapter/section references\",\n    \"benefits\": [\n      {\n        \"type\": \"direct|indirect|societal\",\n        \"description\": \"benefit description\",\n        \"likelihood\": \"likelihood of benefit\"\n      }\n    ],\n    \"benefit_risk_balance\": \"assessment of whether benefits justify risks\"\n  }\n}` }}"
+            }
+          ]
+        }
+      },
+      "id": "assess-risk",
+      "name": "LLM: Assess Risk per National Statement",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [1130, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credentials",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse risk assessment response\nconst input = $input.first().json;\nconst llmResponse = $('LLM: Assess Risk per National Statement').first().json.message.content;\n\nlet riskResult;\ntry {\n  let jsonStr = llmResponse;\n  const jsonMatch = llmResponse.match(/```json\\n?([\\s\\S]*?)\\n?```/);\n  if (jsonMatch) {\n    jsonStr = jsonMatch[1];\n  }\n  riskResult = JSON.parse(jsonStr);\n} catch (e) {\n  throw new Error(`Failed to parse risk assessment: ${e.message}`);\n}\n\nreturn [{\n  json: {\n    ...input,\n    risk_assessment: riskResult.risk_assessment\n  }\n}];"
+      },
+      "id": "parse-risk",
+      "name": "Parse Risk Assessment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1350, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "maxTokens": 2500,
+          "temperature": 0.2
+        },
+        "messages": {
+          "messageValues": [
+            {
+              "message": "={{ `You are an expert in research ethics focusing on consent requirements. Determine the consent approach for this study.\n\n## Ethics Pathway\n${$json.ethics_pathway.pathway}\n\n## Risk Level\n${$json.risk_assessment.level}\n\n## Participants\nTarget Population: ${$json.intake.target_population}\nVulnerable: ${$json.methodology.participants.vulnerable_population}\nCapacity Issues: ${$json.methodology.participants.capacity_issues}\n\n## Data Collection\nIdentifiable Data: ${$json.methodology.data_collection.includes_identifiable_data}\nData Types: ${$json.methodology.data_collection.data_types.join(', ')}\n\n## Consent Types\n1. FULL_WRITTEN_CONSENT: Standard PICF, signed consent\n2. VERBAL_CONSENT: Documented verbal consent\n3. OPT_OUT: Opt-out consent with notification\n4. WAIVER: Waiver of consent (requires justification)\n5. PRESUMED: For emergency research (specific conditions)\n\n## Waiver Criteria (National Statement 2.3.10)\nWaiver may be granted when:\n- Research carries no more than low risk\n- Benefits justify risks\n- Impracticable to obtain consent\n- No known objection from participants\n- Appropriate protections for privacy\n- Not required by law\n\n## Task\nDetermine appropriate consent requirements.\n\nRespond ONLY with valid JSON:\n{\n  \"consent_requirements\": {\n    \"consent_type\": \"FULL_WRITTEN_CONSENT|VERBAL_CONSENT|OPT_OUT|WAIVER|PRESUMED\",\n    \"justification\": \"why this consent type is appropriate\",\n    \"picf_required\": true|false,\n    \"picf_components\": [\n      \"component if PICF required\"\n    ],\n    \"special_considerations\": [\n      {\n        \"consideration\": \"e.g., capacity assessment, assent for minors\",\n        \"approach\": \"how it will be handled\"\n      }\n    ],\n    \"waiver_justification\": {\n      \"applicable\": true|false,\n      \"criteria_met\": [\"criterion 1 met because...\"],\n      \"criteria_not_met\": [\"any criteria not met\"]\n    },\n    \"ongoing_consent\": {\n      \"required\": true|false,\n      \"approach\": \"how ongoing consent will be managed\"\n    },\n    \"withdrawal_process\": \"how participants can withdraw consent\",\n    \"documentation\": \"how consent will be documented\"\n  }\n}` }}"
+            }
+          ]
+        }
+      },
+      "id": "determine-consent",
+      "name": "LLM: Determine Consent Requirements",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [1570, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credentials",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse consent requirements response\nconst input = $input.first().json;\nconst llmResponse = $('LLM: Determine Consent Requirements').first().json.message.content;\n\nlet consentResult;\ntry {\n  let jsonStr = llmResponse;\n  const jsonMatch = llmResponse.match(/```json\\n?([\\s\\S]*?)\\n?```/);\n  if (jsonMatch) {\n    jsonStr = jsonMatch[1];\n  }\n  consentResult = JSON.parse(jsonStr);\n} catch (e) {\n  throw new Error(`Failed to parse consent requirements: ${e.message}`);\n}\n\nreturn [{\n  json: {\n    ...input,\n    consent_requirements: consentResult.consent_requirements\n  }\n}];"
+      },
+      "id": "parse-consent",
+      "name": "Parse Consent Requirements",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1790, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "maxTokens": 3000,
+          "temperature": 0.2
+        },
+        "messages": {
+          "messageValues": [
+            {
+              "message": "={{ `You are an expert in research data governance for Australian healthcare settings. Plan data governance for this study.\n\n## Data Collection Plan\nData Types: ${$json.methodology.data_collection.data_types.join(', ')}\nIdentifiable: ${$json.methodology.data_collection.includes_identifiable_data}\nIdentifiable Elements: ${JSON.stringify($json.methodology.data_collection.identifiable_elements || [])}\nCollection Methods: ${$json.methodology.data_collection.collection_methods.map(m => m.data_element + ': ' + m.method).join('; ')}\n\n## Study Duration\n${$json.methodology.timeline.total_duration}\n\n## Applicable Frameworks\n- Privacy Act 1988 (Cth)\n- Information Privacy Act 2009 (Qld)\n- Health Records Act\n- NHMRC National Statement\n- Australian Code for Responsible Conduct of Research\n\n## Data Retention Requirements\n- Clinical trials: 15 years from study completion\n- Other research: Generally 5-7 years minimum\n- May be longer based on participant age, legal requirements\n\n## Task\nDevelop a comprehensive data governance plan.\n\nRespond ONLY with valid JSON:\n{\n  \"data_governance\": {\n    \"data_classification\": {\n      \"sensitivity_level\": \"public|internal|confidential|highly_confidential\",\n      \"personal_information\": true|false,\n      \"health_information\": true|false,\n      \"sensitive_information\": true|false\n    },\n    \"data_minimisation\": {\n      \"principle_applied\": true|false,\n      \"justification_for_identifiable\": \"why identifiable data needed if applicable\"\n    },\n    \"collection\": {\n      \"lawful_basis\": \"consent|public_interest|research_exemption\",\n      \"collection_notice\": \"how participants will be informed\"\n    },\n    \"storage\": {\n      \"location\": \"where data will be stored\",\n      \"platform\": \"specific platform/system\",\n      \"encryption\": \"encryption approach\",\n      \"access_controls\": \"who has access and how controlled\",\n      \"backup\": \"backup approach\"\n    },\n    \"transfer\": {\n      \"internal_transfers\": \"how data moved within organisation\",\n      \"external_transfers\": \"any external sharing\",\n      \"international_transfers\": true|false,\n      \"transfer_safeguards\": \"protections for transfers\"\n    },\n    \"retention\": {\n      \"retention_period\": \"X years from study completion\",\n      \"retention_justification\": \"basis for retention period\",\n      \"review_schedule\": \"when retention will be reviewed\"\n    },\n    \"disposal\": {\n      \"disposal_method\": \"secure deletion/destruction method\",\n      \"disposal_timeline\": \"when disposal will occur\",\n      \"disposal_documentation\": \"how disposal will be documented\"\n    },\n    \"breach_response\": {\n      \"notification_process\": \"how breaches will be reported\",\n      \"responsible_person\": \"who is responsible\"\n    },\n    \"participant_rights\": {\n      \"access_requests\": \"how participants can access their data\",\n      \"correction_requests\": \"how corrections handled\",\n      \"deletion_requests\": \"how deletion requests handled\"\n    }\n  }\n}` }}"
+            }
+          ]
+        }
+      },
+      "id": "plan-governance",
+      "name": "LLM: Plan Data Governance",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [2010, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credentials",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse data governance response\nconst input = $input.first().json;\nconst llmResponse = $('LLM: Plan Data Governance').first().json.message.content;\n\nlet governanceResult;\ntry {\n  let jsonStr = llmResponse;\n  const jsonMatch = llmResponse.match(/```json\\n?([\\s\\S]*?)\\n?```/);\n  if (jsonMatch) {\n    jsonStr = jsonMatch[1];\n  }\n  governanceResult = JSON.parse(jsonStr);\n} catch (e) {\n  throw new Error(`Failed to parse data governance: ${e.message}`);\n}\n\nreturn [{\n  json: {\n    ...input,\n    data_governance: governanceResult.data_governance\n  }\n}];"
+      },
+      "id": "parse-governance",
+      "name": "Parse Data Governance",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2230, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate governance compliance checklist\nconst input = $input.first().json;\n\nconst pathway = input.ethics_pathway.pathway;\nconst institution = 'METRO_NORTH_HEALTH';\n\n// Base checklist items for all projects\nconst baseChecklist = [\n  {\n    category: 'Documentation',\n    item: 'Project protocol/plan completed',\n    required: true,\n    status: 'pending',\n    notes: 'Will be generated in document stage'\n  },\n  {\n    category: 'Documentation',\n    item: 'Principal Investigator CV current',\n    required: true,\n    status: 'pending',\n    notes: 'PI to provide'\n  },\n  {\n    category: 'Training',\n    item: 'GCP training completed (if applicable)',\n    required: pathway !== 'QI_REGISTRATION',\n    status: 'pending',\n    notes: 'Required for research projects'\n  }\n];\n\n// Pathway-specific items\nconst pathwayItems = {\n  QI_REGISTRATION: [\n    {\n      category: 'Approval',\n      item: 'Unit Director approval obtained',\n      required: true,\n      status: 'pending',\n      notes: 'Required before commencing'\n    },\n    {\n      category: 'Registration',\n      item: 'QI project registered in hospital system',\n      required: true,\n      status: 'pending',\n      notes: 'Register with Quality department'\n    }\n  ],\n  LOW_RISK_RESEARCH: [\n    {\n      category: 'Ethics',\n      item: 'LNR application form completed',\n      required: true,\n      status: 'pending',\n      notes: 'Use standard LNR form'\n    },\n    {\n      category: 'Ethics',\n      item: 'LNR Committee submission',\n      required: true,\n      status: 'pending',\n      notes: 'Submit to hospital LNR committee'\n    },\n    {\n      category: 'Governance',\n      item: 'Site-Specific Assessment (SSA) completed',\n      required: true,\n      status: 'pending',\n      notes: 'Required for governance approval'\n    },\n    {\n      category: 'Governance',\n      item: 'Research Governance Office notification',\n      required: true,\n      status: 'pending',\n      notes: 'Notify RGO of project'\n    }\n  ],\n  FULL_HREC_REVIEW: [\n    {\n      category: 'Ethics',\n      item: 'HREA/HREC application form completed',\n      required: true,\n      status: 'pending',\n      notes: 'Use NHMRC HREA form'\n    },\n    {\n      category: 'Ethics',\n      item: 'Research protocol submitted',\n      required: true,\n      status: 'pending',\n      notes: 'Full protocol required'\n    },\n    {\n      category: 'Ethics',\n      item: 'PICF submitted',\n      required: input.consent_requirements.picf_required,\n      status: 'pending',\n      notes: 'Participant Information and Consent Form'\n    },\n    {\n      category: 'Ethics',\n      item: 'HREC cover letter submitted',\n      required: true,\n      status: 'pending',\n      notes: 'Addressing key ethical considerations'\n    },\n    {\n      category: 'Governance',\n      item: 'Site-Specific Assessment (SSA) completed',\n      required: true,\n      status: 'pending',\n      notes: 'Required for each site'\n    },\n    {\n      category: 'Governance',\n      item: 'Research Governance Office approval',\n      required: true,\n      status: 'pending',\n      notes: 'Final governance approval'\n    },\n    {\n      category: 'Indemnity',\n      item: 'Insurance/indemnity confirmed',\n      required: true,\n      status: 'pending',\n      notes: 'Confirm institutional coverage'\n    }\n  ],\n  HYBRID_REVIEW: [\n    {\n      category: 'Ethics',\n      item: 'HREC application form completed',\n      required: true,\n      status: 'pending',\n      notes: 'Full HREC application'\n    },\n    {\n      category: 'Ethics',\n      item: 'QI Project Plan completed',\n      required: true,\n      status: 'pending',\n      notes: 'Dual documentation required'\n    },\n    {\n      category: 'Governance',\n      item: 'Dual pathway coordination',\n      required: true,\n      status: 'pending',\n      notes: 'Coordinate QI and research approval'\n    }\n  ]\n};\n\n// Combine checklists\nconst governanceChecklist = [\n  ...baseChecklist,\n  ...(pathwayItems[pathway] || pathwayItems.FULL_HREC_REVIEW)\n];\n\n// Add data governance items\nif (input.data_governance.data_classification.health_information) {\n  governanceChecklist.push({\n    category: 'Data',\n    item: 'Health information handling procedures documented',\n    required: true,\n    status: 'pending',\n    notes: 'Per Health Records Act requirements'\n  });\n}\n\nif (input.methodology.setting_sites && input.methodology.setting_sites.length > 1) {\n  governanceChecklist.push({\n    category: 'Multi-site',\n    item: 'SSA for each additional site',\n    required: true,\n    status: 'pending',\n    notes: `${input.methodology.setting_sites.length} sites require assessment`\n  });\n}\n\nreturn [{\n  json: {\n    ...input,\n    governance_checklist: governanceChecklist\n  }\n}];"
+      },
+      "id": "generate-checklist",
+      "name": "Generate Governance Checklist",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build complete ethics evaluation object\nconst input = $input.first().json;\n\n// Build ethics evaluation object\nconst ethicsEvaluation = {\n  ethics_pathway: input.ethics_pathway,\n  pathway_considerations: input.pathway_considerations,\n  risk_assessment: input.risk_assessment,\n  consent_requirements: input.consent_requirements,\n  data_governance: input.data_governance,\n  site_requirements: input.methodology.setting_sites.map(site => ({\n    site_name: site.name,\n    requires_ssa: true,\n    ssa_status: 'NOT_STARTED',\n    local_governance: 'Required'\n  })),\n  governance_checklist: input.governance_checklist\n};\n\nreturn [{\n  json: {\n    project_id: input.project_id,\n    project: input.project,\n    research: input.research,\n    methodology: input.methodology,\n    ethics: ethicsEvaluation\n  }\n}];"
+      },
+      "id": "build-ethics",
+      "name": "Build Ethics Evaluation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2670, 300]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": "public",
+        "table": "projects",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ethics": "={{ JSON.stringify($json.ethics) }}",
+            "status": "ETHICS_COMPLETE",
+            "updated_at": "={{ new Date().toISOString() }}"
+          }
+        },
+        "where": {
+          "values": [
+            {
+              "column": "id",
+              "value": "={{ $json.project_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "update-project",
+      "name": "Update Project Record",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [2890, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "QI Pipeline Database"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "audit_log",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "project_id": "={{ $json.project_id }}",
+            "timestamp": "={{ new Date().toISOString() }}",
+            "action": "ETHICS_COMPLETE",
+            "actor": "ethics_workflow",
+            "details": "={{ JSON.stringify({ pathway: $json.ethics.ethics_pathway.pathway, risk_level: $json.ethics.risk_assessment.level, consent_type: $json.ethics.consent_requirements.consent_type }) }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "log-audit",
+      "name": "Log Audit Entry",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [3110, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "QI Pipeline Database"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare final output for return to master workflow\nconst buildOutput = $('Build Ethics Evaluation').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    project_id: buildOutput.project_id,\n    status: 'ETHICS_COMPLETE',\n    \n    // Ethics summary\n    ethics_summary: {\n      pathway: buildOutput.ethics.ethics_pathway.pathway,\n      approval_body: buildOutput.ethics.ethics_pathway.approval_body,\n      estimated_timeline: buildOutput.ethics.ethics_pathway.estimated_timeline,\n      risk_level: buildOutput.ethics.risk_assessment.level,\n      consent_type: buildOutput.ethics.consent_requirements.consent_type,\n      forms_required: buildOutput.ethics.ethics_pathway.forms,\n      checklist_items: buildOutput.ethics.governance_checklist.length\n    },\n    \n    // Full ethics evaluation for next stage\n    ethics: buildOutput.ethics,\n    \n    // Pass through previous stage data\n    methodology: buildOutput.methodology,\n    research: buildOutput.research,\n    project: buildOutput.project,\n    \n    // Workflow metadata\n    workflow_metadata: {\n      stage: 'ethics',\n      completed_at: new Date().toISOString(),\n      next_stage: 'documents',\n      requires_checkpoint: true,\n      checkpoint_items: [\n        'Confirm ethics pathway appropriate',\n        'Validate risk assessment accuracy',\n        'Review consent approach feasibility',\n        'Approve data management plan',\n        'Identify any governance concerns'\n      ]\n    }\n  }\n}];"
+      },
+      "id": "prepare-output",
+      "name": "Prepare Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3330, 300]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Context": {
+      "main": [
+        [
+          {
+            "node": "LLM: Determine Ethics Pathway",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM: Determine Ethics Pathway": {
+      "main": [
+        [
+          {
+            "node": "Parse Ethics Pathway",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Ethics Pathway": {
+      "main": [
+        [
+          {
+            "node": "LLM: Assess Risk per National Statement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM: Assess Risk per National Statement": {
+      "main": [
+        [
+          {
+            "node": "Parse Risk Assessment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Risk Assessment": {
+      "main": [
+        [
+          {
+            "node": "LLM: Determine Consent Requirements",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM: Determine Consent Requirements": {
+      "main": [
+        [
+          {
+            "node": "Parse Consent Requirements",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Consent Requirements": {
+      "main": [
+        [
+          {
+            "node": "LLM: Plan Data Governance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM: Plan Data Governance": {
+      "main": [
+        [
+          {
+            "node": "Parse Data Governance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Data Governance": {
+      "main": [
+        [
+          {
+            "node": "Generate Governance Checklist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Governance Checklist": {
+      "main": [
+        [
+          {
+            "node": "Build Ethics Evaluation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Ethics Evaluation": {
+      "main": [
+        [
+          {
+            "node": "Update Project Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Project Record": {
+      "main": [
+        [
+          {
+            "node": "Log Audit Entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Audit Entry": {
+      "main": [
+        [
+          {
+            "node": "Prepare Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "qi-research-pipeline",
+      "createdAt": "2026-01-27T00:00:00.000Z",
+      "updatedAt": "2026-01-27T00:00:00.000Z"
+    },
+    {
+      "name": "stage-4-ethics",
+      "createdAt": "2026-01-27T00:00:00.000Z",
+      "updatedAt": "2026-01-27T00:00:00.000Z"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2026-01-27T00:00:00.000Z",
+  "versionId": "1"
+}

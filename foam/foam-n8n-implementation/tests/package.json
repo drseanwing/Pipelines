@@ -1,0 +1,33 @@
+{
+  "name": "foam-n8n-tests",
+  "version": "1.0.0",
+  "description": "Test suite for FOAM N8N implementation - validates workflows, schemas, and model consistency",
+  "private": true,
+  "scripts": {
+    "test": "node run-all-tests.js",
+    "test:workflows": "node validate-workflows.js",
+    "test:schemas": "node validate-schemas.js",
+    "test:models": "node check-model-consistency.js",
+    "test:quick": "npm run test:workflows && npm run test:models",
+    "validate-workflows": "node validate-workflows.js",
+    "validate-schemas": "node validate-schemas.js",
+    "check-models": "node check-model-consistency.js"
+  },
+  "keywords": [
+    "n8n",
+    "workflow",
+    "validation",
+    "testing",
+    "foam"
+  ],
+  "author": "FOAM Development Team",
+  "license": "MIT",
+  "dependencies": {
+    "ajv": "^8.12.0",
+    "ajv-formats": "^2.1.1"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

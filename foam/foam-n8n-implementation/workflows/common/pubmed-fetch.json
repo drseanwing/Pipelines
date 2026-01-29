@@ -1,0 +1,286 @@
+{
+  "name": "FOAM PubMed Search",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "notes": "Expects: { search_term, filters?, pmid?, max_results? }"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare PubMed search parameters\nconst input = $input.first().json;\n\n// Build search query\nfunction buildPubMedQuery(topic, filters = {}) {\n  const parts = [topic];\n  \n  if (filters.studyType) {\n    parts.push(`${filters.studyType}[pt]`);\n  }\n  if (filters.dateRange) {\n    parts.push(`${filters.dateRange}[dp]`);\n  }\n  if (filters.humans !== false) {\n    parts.push('humans[mh]');\n  }\n  \n  return parts.join(' AND ');\n}\n\nconst searchTerm = input.search_term || input.topic?.clinical_question || '';\nconst filters = input.filters || {};\nconst maxResults = input.max_results || 20;\n\n// If we have a specific PMID, we'll fetch directly\nconst pmid = input.pmid || input.topic?.trial_reference?.pmid;\n\nreturn {\n  json: {\n    ...input,\n    _stage: 'pubmed_search_prepared',\n    search_query: buildPubMedQuery(searchTerm, filters),\n    pmid: pmid,\n    max_results: maxResults,\n    fetch_mode: pmid ? 'single' : 'search'\n  }\n};"
+      },
+      "id": "prepare-search",
+      "name": "Prepare Search",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.fetch_mode }}",
+                    "rightValue": "single",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Fetch Single"
+            }
+          ],
+          "fallbackOutput": {
+            "enabled": true,
+            "outputKey": "Search"
+          }
+        }
+      },
+      "id": "route-fetch-mode",
+      "name": "Route by Fetch Mode",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+        "options": {
+          "timeout": 30000
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "db",
+              "value": "pubmed"
+            },
+            {
+              "name": "term",
+              "value": "={{ $json.search_query }}"
+            },
+            {
+              "name": "retmode",
+              "value": "json"
+            },
+            {
+              "name": "retmax",
+              "value": "={{ $json.max_results }}"
+            },
+            {
+              "name": "sort",
+              "value": "relevance"
+            }
+          ]
+        }
+      },
+      "id": "pubmed-search",
+      "name": "PubMed Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [920, 400]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+        "options": {
+          "timeout": 30000
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "db",
+              "value": "pubmed"
+            },
+            {
+              "name": "id",
+              "value": "={{ $json.pmid }}"
+            },
+            {
+              "name": "retmode",
+              "value": "xml"
+            }
+          ]
+        }
+      },
+      "id": "pubmed-fetch-single",
+      "name": "Fetch Single Article",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [920, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse search results and fetch article details\nconst input = $input.first().json;\nconst searchResult = input.esearchresult || {};\nconst idList = searchResult.idlist || [];\n\nif (idList.length === 0) {\n  return {\n    json: {\n      ...input,\n      _stage: 'pubmed_no_results',\n      articles: [],\n      message: 'No PubMed results found for query'\n    }\n  };\n}\n\n// Return IDs for batch fetch\nreturn {\n  json: {\n    ...input,\n    _stage: 'pubmed_ids_found',\n    pmid_list: idList,\n    result_count: searchResult.count || idList.length\n  }\n};"
+      },
+      "id": "parse-search-results",
+      "name": "Parse Search Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1140, 400]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+        "options": {
+          "timeout": 60000
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "db",
+              "value": "pubmed"
+            },
+            {
+              "name": "id",
+              "value": "={{ $json.pmid_list.join(',') }}"
+            },
+            {
+              "name": "retmode",
+              "value": "xml"
+            }
+          ]
+        }
+      },
+      "id": "pubmed-fetch-batch",
+      "name": "Fetch Article Details",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1360, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse PubMed XML response into structured data\n// This is a simplified parser - full implementation would use XML library\n\nconst input = $input.first().json;\nconst xmlData = input.data || input.body || '';\n\n// Simple regex-based extraction (production would use proper XML parser)\nfunction extractArticles(xml) {\n  const articles = [];\n  \n  // Match PubmedArticle blocks\n  const articleRegex = /<PubmedArticle>([\\s\\S]*?)<\\/PubmedArticle>/g;\n  let match;\n  \n  while ((match = articleRegex.exec(xml)) !== null) {\n    const articleXml = match[1];\n    \n    // Extract basic fields\n    const pmid = (articleXml.match(/<PMID[^>]*>([\\d]+)<\\/PMID>/) || [])[1];\n    const title = (articleXml.match(/<ArticleTitle>([^<]+)<\\/ArticleTitle>/) || [])[1];\n    const abstractText = (articleXml.match(/<AbstractText[^>]*>([^<]+)<\\/AbstractText>/) || [])[1];\n    const journal = (articleXml.match(/<Title>([^<]+)<\\/Title>/) || [])[1];\n    const year = (articleXml.match(/<Year>([\\d]+)<\\/Year>/) || [])[1];\n    const volume = (articleXml.match(/<Volume>([^<]+)<\\/Volume>/) || [])[1];\n    const pages = (articleXml.match(/<MedlinePgn>([^<]+)<\\/MedlinePgn>/) || [])[1];\n    \n    // Extract DOI\n    const doiMatch = articleXml.match(/<ArticleId IdType=\"doi\">([^<]+)<\\/ArticleId>/);\n    const doi = doiMatch ? doiMatch[1] : null;\n    \n    // Extract authors\n    const authors = [];\n    const authorRegex = /<Author[^>]*>[\\s\\S]*?<LastName>([^<]+)<\\/LastName>[\\s\\S]*?<ForeName>([^<]*)<\\/ForeName>[\\s\\S]*?<\\/Author>/g;\n    let authorMatch;\n    while ((authorMatch = authorRegex.exec(articleXml)) !== null) {\n      authors.push(`${authorMatch[1]} ${authorMatch[2]}`.trim());\n    }\n    \n    if (pmid) {\n      articles.push({\n        pmid,\n        title: title || 'Unknown Title',\n        abstract: abstractText || '',\n        journal: journal || 'Unknown Journal',\n        year: parseInt(year) || null,\n        volume,\n        pages,\n        doi,\n        authors: authors.slice(0, 6), // First 6 authors\n        citation: {\n          authors,\n          title: title || 'Unknown Title',\n          journal: journal || 'Unknown Journal',\n          year: parseInt(year) || null,\n          volume,\n          pages,\n          doi,\n          pmid\n        }\n      });\n    }\n  }\n  \n  return articles;\n}\n\nconst articles = extractArticles(xmlData);\n\nreturn {\n  json: {\n    request_id: input.request_id,\n    _stage: 'pubmed_articles_parsed',\n    articles,\n    article_count: articles.length,\n    search_query: input.search_query,\n    _pubmed_fetch_complete: true\n  }\n};"
+      },
+      "id": "parse-articles",
+      "name": "Parse Article XML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1580, 300]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Prepare Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Search": {
+      "main": [
+        [
+          {
+            "node": "Route by Fetch Mode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Fetch Mode": {
+      "main": [
+        [
+          {
+            "node": "Fetch Single Article",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PubMed Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PubMed Search": {
+      "main": [
+        [
+          {
+            "node": "Parse Search Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Single Article": {
+      "main": [
+        [
+          {
+            "node": "Parse Article XML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Search Results": {
+      "main": [
+        [
+          {
+            "node": "Fetch Article Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Article Details": {
+      "main": [
+        [
+          {
+            "node": "Parse Article XML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "FOAM",
+      "id": "foam-tag"
+    },
+    {
+      "name": "Evidence",
+      "id": "evidence-tag"
+    },
+    {
+      "name": "Common",
+      "id": "common-tag"
+    }
+  ],
+  "versionId": "1.0.0",
+  "meta": {
+    "instanceId": "foam-n8n-instance",
+    "notes": "Reusable PubMed search and fetch workflow. Supports both single PMID fetch and keyword search."
+  }
+}

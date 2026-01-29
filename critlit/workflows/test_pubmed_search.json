@@ -1,0 +1,428 @@
+{
+  "name": "Test_PubMed_Search",
+  "description": "Standalone test workflow for PubMed API connectivity. Tests ESearch and EFetch endpoints with a hardcoded query limited to 10 results. Does not require protocol setup - can be run immediately to verify PubMed integration.",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "11111111-1111-1111-1111-111111111111",
+      "name": "Manual_Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "query_text",
+              "value": "systematic review[ti] AND 2024[dp]"
+            }
+          ],
+          "number": [
+            {
+              "name": "retmax",
+              "value": 10
+            },
+            {
+              "name": "database_id",
+              "value": 1
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "22222222-2222-2222-2222-222222222222",
+      "name": "Set_Test_Query",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        460,
+        300
+      ],
+      "notes": "Hardcoded test query: systematic reviews published in 2024, limited to 10 results"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+        "authentication": "none",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "db",
+              "value": "pubmed"
+            },
+            {
+              "name": "term",
+              "value": "={{ $json.query_text }}"
+            },
+            {
+              "name": "retmax",
+              "value": "={{ $json.retmax }}"
+            },
+            {
+              "name": "retmode",
+              "value": "json"
+            },
+            {
+              "name": "usehistory",
+              "value": "y"
+            },
+            {
+              "name": "api_key",
+              "value": "={{ $env.PUBMED_API_KEY || '' }}"
+            },
+            {
+              "name": "tool",
+              "value": "critlit_slr"
+            },
+            {
+              "name": "email",
+              "value": "={{ $env.CONTACT_EMAIL || '' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "33333333-3333-3333-3333-333333333333",
+      "name": "PubMed_ESearch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const searchResult = $input.first().json;\nconst config = $('Set_Test_Query').first().json;\n\nconst esearchresult = searchResult.esearchresult || {};\nconst idlist = esearchresult.idlist || [];\nconst count = parseInt(esearchresult.count || '0', 10);\nconst querykey = esearchresult.querykey || '';\nconst webenv = esearchresult.webenv || '';\n\nreturn {\n  json: {\n    pmids: idlist,\n    total_count: count,\n    querykey: querykey,\n    webenv: webenv,\n    database_id: config.database_id,\n    query_text: config.query_text\n  }\n};"
+      },
+      "id": "44444444-4444-4444-4444-444444444444",
+      "name": "Parse_Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "notes": "Extract count, WebEnv, QueryKey from ESearch response"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+        "authentication": "none",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "db",
+              "value": "pubmed"
+            },
+            {
+              "name": "query_key",
+              "value": "={{ $json.querykey }}"
+            },
+            {
+              "name": "WebEnv",
+              "value": "={{ $json.webenv }}"
+            },
+            {
+              "name": "retmode",
+              "value": "xml"
+            },
+            {
+              "name": "retmax",
+              "value": "={{ $json.pmids.length }}"
+            },
+            {
+              "name": "api_key",
+              "value": "={{ $env.PUBMED_API_KEY || '' }}"
+            },
+            {
+              "name": "tool",
+              "value": "critlit_slr"
+            },
+            {
+              "name": "email",
+              "value": "={{ $env.CONTACT_EMAIL || '' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "55555555-5555-5555-5555-555555555555",
+      "name": "PubMed_EFetch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const xml = $input.first().binary?.data?.toString('utf-8') || $input.first().json;\nconst searchData = $('Parse_Results').first().json;\n\n// Simple XML parsing for PubMed articles\nconst extractTag = (xml, tag) => {\n  const regex = new RegExp(`<${tag}[^>]*>([\\\\s\\\\S]*?)</${tag}>`, 'gi');\n  const matches = [];\n  let match;\n  while ((match = regex.exec(xml)) !== null) {\n    matches.push(match[1]);\n  }\n  return matches;\n};\n\nconst extractSingleTag = (xml, tag) => {\n  const regex = new RegExp(`<${tag}[^>]*>([\\\\s\\\\S]*?)</${tag}>`, 'i');\n  const match = xml.match(regex);\n  return match ? match[1].trim() : null;\n};\n\nconst articles = extractTag(xml, 'PubmedArticle');\nconst documents = [];\n\nfor (const article of articles) {\n  const pmid = extractSingleTag(article, 'PMID');\n  const articleTitle = extractSingleTag(article, 'ArticleTitle');\n  const abstractText = extractSingleTag(article, 'AbstractText') || '';\n  const journalTitle = extractSingleTag(article, 'Title');\n  \n  // Extract year\n  const pubDate = extractSingleTag(article, 'PubDate');\n  const year = pubDate ? extractSingleTag(pubDate, 'Year') : null;\n  \n  // Extract authors\n  const authorList = extractSingleTag(article, 'AuthorList');\n  const authors = authorList ? extractTag(authorList, 'Author').map(auth => {\n    const lastName = extractSingleTag(auth, 'LastName') || '';\n    const foreName = extractSingleTag(auth, 'ForeName') || '';\n    return `${foreName} ${lastName}`.trim();\n  }) : [];\n  \n  documents.push({\n    external_id: pmid,\n    database_id: searchData.database_id,\n    title: articleTitle,\n    abstract: abstractText,\n    authors: authors,\n    publication_year: year ? parseInt(year, 10) : null,\n    journal: journalTitle,\n    metadata: {\n      source: 'PubMed',\n      test_query: searchData.query_text\n    }\n  });\n}\n\nreturn documents.map(doc => ({ json: doc }));"
+      },
+      "id": "66666666-6666-6666-6666-666666666666",
+      "name": "Parse_XML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        300
+      ],
+      "notes": "Extract document fields: PMID, title, abstract, authors, year, journal"
+    },
+    {
+      "parameters": {
+        "jsCode": "const documents = $input.all().map(item => item.json);\nconst searchData = $('Parse_Results').first().json;\n\nconsole.log('=== PubMed Test Results ===');\nconsole.log(`Query: ${searchData.query_text}`);\nconsole.log(`Total matches: ${searchData.total_count}`);\nconsole.log(`Documents retrieved: ${documents.length}`);\nconsole.log('\\n=== Sample Documents ===');\n\ndocuments.slice(0, 3).forEach((doc, idx) => {\n  console.log(`\\n${idx + 1}. ${doc.title}`);\n  console.log(`   PMID: ${doc.external_id}`);\n  console.log(`   Authors: ${doc.authors.join(', ')}`);\n  console.log(`   Year: ${doc.publication_year}`);\n  console.log(`   Journal: ${doc.journal}`);\n});\n\nreturn $input.all();"
+      },
+      "id": "77777777-7777-7777-7777-777777777777",
+      "name": "Log_Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        300
+      ],
+      "notes": "Log parsed documents to console for verification"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.external_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "88888888-8888-8888-8888-888888888888",
+      "name": "IF_Has_Results",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "documents"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "external_id": "={{ $json.external_id }}",
+            "database_id": "={{ $json.database_id }}",
+            "title": "={{ $json.title }}",
+            "abstract": "={{ $json.abstract }}",
+            "authors": "={{ JSON.stringify($json.authors) }}",
+            "publication_year": "={{ $json.publication_year }}",
+            "journal": "={{ $json.journal }}",
+            "metadata": "={{ JSON.stringify($json.metadata) }}"
+          }
+        },
+        "options": {
+          "skipOnConflict": true
+        }
+      },
+      "id": "99999999-9999-9999-9999-999999999999",
+      "name": "Insert_Test_Documents",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        2000,
+        240
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL account"
+        }
+      },
+      "notes": "Insert into documents table with ON CONFLICT skip"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "success"
+            },
+            {
+              "name": "query",
+              "value": "={{ $('Parse_Results').first().json.query_text }}"
+            }
+          ],
+          "number": [
+            {
+              "name": "total_matches",
+              "value": "={{ $('Parse_Results').first().json.total_count }}"
+            },
+            {
+              "name": "documents_retrieved",
+              "value": "={{ $('Parse_XML').all().length }}"
+            },
+            {
+              "name": "documents_inserted",
+              "value": "={{ $('Insert_Test_Documents').all().length }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      "name": "Success_Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        2220,
+        240
+      ],
+      "notes": "Return summary of test execution"
+    }
+  ],
+  "connections": {
+    "Manual_Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set_Test_Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set_Test_Query": {
+      "main": [
+        [
+          {
+            "node": "PubMed_ESearch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PubMed_ESearch": {
+      "main": [
+        [
+          {
+            "node": "Parse_Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse_Results": {
+      "main": [
+        [
+          {
+            "node": "PubMed_EFetch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PubMed_EFetch": {
+      "main": [
+        [
+          {
+            "node": "Parse_XML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse_XML": {
+      "main": [
+        [
+          {
+            "node": "Log_Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log_Results": {
+      "main": [
+        [
+          {
+            "node": "IF_Has_Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF_Has_Results": {
+      "main": [
+        [
+          {
+            "node": "Insert_Test_Documents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert_Test_Documents": {
+      "main": [
+        [
+          {
+            "node": "Success_Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "test",
+    "pubmed"
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2026-01-25T00:00:00.000Z",
+  "versionId": "1",
+  "active": false
+}

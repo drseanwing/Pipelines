@@ -1,0 +1,317 @@
+# Google Cloud Build configuration for CritLit SLR Pipeline
+# Documentation: https://cloud.google.com/build/docs/build-config-file-schema
+
+substitutions:
+  _REGION: 'us-central1'
+  _ZONE: 'us-central1-a'
+  _INSTANCE_NAME: 'critlit-slr'
+  _MACHINE_TYPE: 'n1-standard-4'
+  _DISK_SIZE: '100GB'
+  _GPU_TYPE: 'nvidia-tesla-t4'
+  _GPU_COUNT: '1'
+  _NETWORK: 'default'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'
+
+steps:
+  # Step 1: Validate docker-compose configuration
+  - name: 'docker/compose:latest'
+    id: 'validate-compose'
+    args: ['config', '--quiet']
+    env:
+      - 'POSTGRES_PASSWORD=placeholder'
+      - 'N8N_USER=placeholder'
+      - 'N8N_PASSWORD=placeholder'
+      - 'N8N_ENCRYPTION_KEY=placeholder'
+
+  # Step 2: Run linting on shell scripts
+  - name: 'koalaman/shellcheck:stable'
+    id: 'lint-scripts'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        shellcheck scripts/*.sh tests/*.sh || true
+    waitFor: ['-']
+
+  # Step 3: Validate SQL migrations syntax
+  - name: 'postgres:16'
+    id: 'validate-sql'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        for file in init-scripts/*.sql; do
+          echo "Validating: $file"
+          psql --set ON_ERROR_STOP=1 -f "$file" -d postgres 2>&1 | head -20 || true
+        done
+    env:
+      - 'PGUSER=postgres'
+      - 'PGPASSWORD=test'
+    waitFor: ['-']
+
+  # Step 4: Create secrets in Secret Manager (if not exists)
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'setup-secrets'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        # Create secrets if they don't exist
+        for secret in critlit-postgres-password critlit-n8n-user critlit-n8n-password critlit-n8n-encryption-key; do
+          if ! gcloud secrets describe $secret --project=$PROJECT_ID 2>/dev/null; then
+            echo "Creating secret: $secret"
+            echo -n "CHANGE_ME_$(openssl rand -hex 16)" | \
+              gcloud secrets create $secret --data-file=- --project=$PROJECT_ID
+          fi
+        done
+    waitFor: ['validate-compose']
+
+  # Step 5: Create Compute Engine instance with GPU (if not exists)
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'create-instance'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        # Check if instance exists
+        if gcloud compute instances describe ${_INSTANCE_NAME} \
+            --zone=${_ZONE} --project=$PROJECT_ID 2>/dev/null; then
+          echo "Instance ${_INSTANCE_NAME} already exists"
+          exit 0
+        fi
+
+        # Create instance with Container-Optimized OS and GPU
+        gcloud compute instances create ${_INSTANCE_NAME} \
+          --zone=${_ZONE} \
+          --machine-type=${_MACHINE_TYPE} \
+          --boot-disk-size=${_DISK_SIZE} \
+          --boot-disk-type=pd-ssd \
+          --image-family=cos-stable \
+          --image-project=cos-cloud \
+          --accelerator=type=${_GPU_TYPE},count=${_GPU_COUNT} \
+          --maintenance-policy=TERMINATE \
+          --network=${_NETWORK} \
+          --tags=critlit-slr,http-server,https-server \
+          --metadata=startup-script='#!/bin/bash
+            # Install NVIDIA drivers for Container-Optimized OS
+            cos-extensions install gpu
+            mount --bind /var/lib/nvidia /var/lib/nvidia
+            mount -o remount,exec /var/lib/nvidia
+          ' \
+          --scopes=cloud-platform \
+          --project=$PROJECT_ID
+
+        # Wait for instance to be ready
+        sleep 60
+    waitFor: ['setup-secrets']
+
+  # Step 6: Create firewall rules for services
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'setup-firewall'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        # Allow n8n web interface (5678)
+        gcloud compute firewall-rules create allow-n8n \
+          --allow=tcp:5678 \
+          --target-tags=critlit-slr \
+          --description="Allow n8n web interface" \
+          --project=$PROJECT_ID 2>/dev/null || true
+
+        # Allow I-Librarian (8080)
+        gcloud compute firewall-rules create allow-ilibrarian \
+          --allow=tcp:8080 \
+          --target-tags=critlit-slr \
+          --description="Allow I-Librarian web interface" \
+          --project=$PROJECT_ID 2>/dev/null || true
+
+        # Allow Ollama API (11434) - internal only by default
+        gcloud compute firewall-rules create allow-ollama-internal \
+          --allow=tcp:11434 \
+          --source-ranges=10.0.0.0/8 \
+          --target-tags=critlit-slr \
+          --description="Allow Ollama API internal access" \
+          --project=$PROJECT_ID 2>/dev/null || true
+    waitFor: ['create-instance']
+
+  # Step 7: Copy application files to instance
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'copy-files'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        # Create tarball of application files
+        tar -czf /workspace/critlit-app.tar.gz \
+          docker-compose.yml \
+          init-scripts/ \
+          workflows/ \
+          scripts/ \
+          tests/ \
+          docs/ \
+          .env.example
+
+        # Copy to instance
+        gcloud compute scp /workspace/critlit-app.tar.gz \
+          ${_INSTANCE_NAME}:/tmp/critlit-app.tar.gz \
+          --zone=${_ZONE} \
+          --project=$PROJECT_ID
+
+        # Extract on instance
+        gcloud compute ssh ${_INSTANCE_NAME} \
+          --zone=${_ZONE} \
+          --project=$PROJECT_ID \
+          --command="
+            sudo mkdir -p /opt/critlit
+            sudo tar -xzf /tmp/critlit-app.tar.gz -C /opt/critlit
+            sudo chown -R \$(whoami):\$(whoami) /opt/critlit
+          "
+    waitFor: ['setup-firewall']
+
+  # Step 8: Configure environment and deploy
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'deploy'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        # Fetch secrets and create .env file on instance
+        POSTGRES_PASSWORD=$(gcloud secrets versions access latest \
+          --secret=critlit-postgres-password --project=$PROJECT_ID)
+        N8N_USER=$(gcloud secrets versions access latest \
+          --secret=critlit-n8n-user --project=$PROJECT_ID)
+        N8N_PASSWORD=$(gcloud secrets versions access latest \
+          --secret=critlit-n8n-password --project=$PROJECT_ID)
+        N8N_ENCRYPTION_KEY=$(gcloud secrets versions access latest \
+          --secret=critlit-n8n-encryption-key --project=$PROJECT_ID)
+
+        # Deploy via SSH
+        gcloud compute ssh ${_INSTANCE_NAME} \
+          --zone=${_ZONE} \
+          --project=$PROJECT_ID \
+          --command="
+            cd /opt/critlit
+
+            # Create .env file
+            cat > .env << EOF
+        POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+        N8N_USER=${N8N_USER}
+        N8N_PASSWORD=${N8N_PASSWORD}
+        N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+        EOF
+
+            # Install Docker Compose if needed (for COS)
+            if ! command -v docker-compose &> /dev/null; then
+              sudo docker run --rm \
+                -v /var/run/docker.sock:/var/run/docker.sock \
+                -v /opt/critlit:/opt/critlit \
+                -w /opt/critlit \
+                docker/compose:latest up -d
+            else
+              docker-compose up -d
+            fi
+          "
+    waitFor: ['copy-files']
+
+  # Step 9: Wait for services and run health checks
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'health-check'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        # Wait for services to start
+        sleep 30
+
+        # Run health checks via SSH
+        gcloud compute ssh ${_INSTANCE_NAME} \
+          --zone=${_ZONE} \
+          --project=$PROJECT_ID \
+          --command="
+            cd /opt/critlit
+
+            echo '=== Checking PostgreSQL ==='
+            docker exec slr_postgres pg_isready -U slr_user -d slr_database
+
+            echo '=== Checking n8n ==='
+            curl -s -o /dev/null -w '%{http_code}' http://localhost:5678/healthz || echo 'n8n starting...'
+
+            echo '=== Checking Ollama ==='
+            curl -s http://localhost:11434/api/tags | head -c 200 || echo 'Ollama starting...'
+
+            echo '=== Checking I-Librarian ==='
+            curl -s -o /dev/null -w '%{http_code}' http://localhost:8080 || echo 'I-Librarian starting...'
+
+            echo '=== Docker Container Status ==='
+            docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+          "
+    waitFor: ['deploy']
+
+  # Step 10: Pull Ollama model (background)
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'pull-model'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        gcloud compute ssh ${_INSTANCE_NAME} \
+          --zone=${_ZONE} \
+          --project=$PROJECT_ID \
+          --command="
+            # Pull Llama 3.1 model in background
+            nohup docker exec slr_ollama ollama pull llama3.1:8b > /tmp/ollama-pull.log 2>&1 &
+            echo 'Llama 3.1 model pull started in background. Check /tmp/ollama-pull.log for progress.'
+          "
+    waitFor: ['health-check']
+
+  # Step 11: Output deployment information
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'output-info'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        EXTERNAL_IP=$(gcloud compute instances describe ${_INSTANCE_NAME} \
+          --zone=${_ZONE} \
+          --project=$PROJECT_ID \
+          --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
+
+        echo "=============================================="
+        echo "CritLit SLR Pipeline Deployment Complete"
+        echo "=============================================="
+        echo ""
+        echo "Instance: ${_INSTANCE_NAME}"
+        echo "Zone: ${_ZONE}"
+        echo "External IP: ${EXTERNAL_IP}"
+        echo ""
+        echo "Service URLs:"
+        echo "  n8n:         http://${EXTERNAL_IP}:5678"
+        echo "  I-Librarian: http://${EXTERNAL_IP}:8080"
+        echo "  Ollama API:  http://${EXTERNAL_IP}:11434 (internal only)"
+        echo ""
+        echo "SSH Access:"
+        echo "  gcloud compute ssh ${_INSTANCE_NAME} --zone=${_ZONE}"
+        echo ""
+        echo "View Logs:"
+        echo "  gcloud compute ssh ${_INSTANCE_NAME} --zone=${_ZONE} --command='cd /opt/critlit && docker-compose logs -f'"
+        echo "=============================================="
+    waitFor: ['pull-model']
+
+# Artifacts to store build logs
+artifacts:
+  objects:
+    location: 'gs://${PROJECT_ID}-critlit-artifacts/'
+    paths: ['cloudbuild-*.log']
+
+# Build timeout (GPU setup can take time)
+timeout: '3600s'
+
+# Service account needs these permissions:
+# - Compute Instance Admin
+# - Secret Manager Secret Accessor
+# - Storage Object Admin (for artifacts)
+# - Service Account User

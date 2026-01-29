@@ -1,0 +1,379 @@
+{
+  "name": "SLR Search Execution",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "slr-search-execution",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger-search",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "webhookId": "slr-search-execution-webhook"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "extract-search-review-id",
+              "name": "review_id",
+              "value": "={{ $json.body.review_id }}",
+              "type": "string"
+            },
+            {
+              "id": "extract-search-query",
+              "name": "search_query",
+              "value": "={{ $json.body.search_query }}",
+              "type": "string"
+            },
+            {
+              "id": "extract-database-name",
+              "name": "database_name",
+              "value": "={{ $json.body.database_name || 'PubMed' }}",
+              "type": "string"
+            },
+            {
+              "id": "extract-max-results",
+              "name": "max_results",
+              "value": "={{ $json.body.max_results || 1000 }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "extract-search-params",
+      "name": "Extract Search Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "db",
+              "value": "pubmed"
+            },
+            {
+              "name": "term",
+              "value": "={{ $json.search_query }}"
+            },
+            {
+              "name": "retmax",
+              "value": "={{ $json.max_results }}"
+            },
+            {
+              "name": "retmode",
+              "value": "json"
+            },
+            {
+              "name": "usehistory",
+              "value": "y"
+            },
+            {
+              "name": "api_key",
+              "value": "={{ $env.PUBMED_API_KEY }}"
+            },
+            {
+              "name": "email",
+              "value": "={{ $env.CONTACT_EMAIL }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "pubmed-esearch-node",
+      "name": "PubMed ESearch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO search_executions (review_id, database_name, search_query, date_executed, results_count, query_metadata)\nVALUES (\n  $1::uuid,\n  $2::text,\n  $3::text,\n  CURRENT_DATE,\n  $4::integer,\n  $5::jsonb\n)\nRETURNING *;",
+        "options": {}
+      },
+      "id": "log-search-execution",
+      "name": "Log Search Execution",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [850, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-slr-database",
+          "name": "SLR PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "prepare-log-review-id",
+              "name": "review_id",
+              "value": "={{ $('Extract Search Parameters').item.json.review_id }}",
+              "type": "string"
+            },
+            {
+              "id": "prepare-log-database",
+              "name": "database_name",
+              "value": "={{ $('Extract Search Parameters').item.json.database_name }}",
+              "type": "string"
+            },
+            {
+              "id": "prepare-log-query",
+              "name": "search_query",
+              "value": "={{ $('Extract Search Parameters').item.json.search_query }}",
+              "type": "string"
+            },
+            {
+              "id": "prepare-log-count",
+              "name": "results_count",
+              "value": "={{ $json.esearchresult.count }}",
+              "type": "number"
+            },
+            {
+              "id": "prepare-log-metadata",
+              "name": "query_metadata",
+              "value": "={{ { \"webenv\": $json.esearchresult.webenv, \"query_key\": $json.esearchresult.querykey, \"retmax\": $json.esearchresult.retmax } }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "prepare-search-log",
+      "name": "Prepare Search Log",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [750, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+        "authentication": "none",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "db",
+              "value": "pubmed"
+            },
+            {
+              "name": "query_key",
+              "value": "={{ $('PubMed ESearch').item.json.esearchresult.querykey }}"
+            },
+            {
+              "name": "WebEnv",
+              "value": "={{ $('PubMed ESearch').item.json.esearchresult.webenv }}"
+            },
+            {
+              "name": "retmode",
+              "value": "xml"
+            },
+            {
+              "name": "retmax",
+              "value": "={{ $('Extract Search Parameters').item.json.max_results }}"
+            },
+            {
+              "name": "api_key",
+              "value": "={{ $env.PUBMED_API_KEY }}"
+            },
+            {
+              "name": "email",
+              "value": "={{ $env.CONTACT_EMAIL }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "pubmed-efetch-node",
+      "name": "PubMed EFetch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse PubMed XML and extract document metadata\nconst xml = $input.item.json;\n\n// For alpha version, we'll process the XML in the next phase\n// This placeholder returns the raw XML for now\nreturn {\n  json: {\n    review_id: $('Extract Search Parameters').item.json.review_id,\n    search_execution_id: $('Log Search Execution').item.json.id,\n    raw_xml: xml,\n    status: 'pending_parse',\n    message: 'Documents fetched successfully. Parsing will be implemented in Phase 3.'\n  }\n};"
+      },
+      "id": "parse-pubmed-xml",
+      "name": "Parse PubMed XML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "respond-search-complete",
+      "name": "Respond Search Complete",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO audit_log (review_id, event_type, event_data, created_at)\nVALUES (\n  $1::uuid,\n  'search_executed',\n  $2::jsonb,\n  NOW()\n)\nRETURNING *;",
+        "options": {}
+      },
+      "id": "audit-search-execution",
+      "name": "Audit Search Execution",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [950, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-slr-database",
+          "name": "SLR PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "prepare-audit-review-id",
+              "name": "review_id",
+              "value": "={{ $('Extract Search Parameters').item.json.review_id }}",
+              "type": "string"
+            },
+            {
+              "id": "prepare-audit-event-data",
+              "name": "event_data",
+              "value": "={{ { \"search_execution_id\": $json.id, \"database_name\": $json.database_name, \"results_count\": $json.results_count } }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "prepare-audit-data",
+      "name": "Prepare Audit Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [850, 400]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Search Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Search Parameters": {
+      "main": [
+        [
+          {
+            "node": "PubMed ESearch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PubMed ESearch": {
+      "main": [
+        [
+          {
+            "node": "Prepare Search Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Search Log": {
+      "main": [
+        [
+          {
+            "node": "Log Search Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Search Execution": {
+      "main": [
+        [
+          {
+            "node": "Prepare Audit Data",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "PubMed EFetch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Audit Data": {
+      "main": [
+        [
+          {
+            "node": "Audit Search Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PubMed EFetch": {
+      "main": [
+        [
+          {
+            "node": "Parse PubMed XML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse PubMed XML": {
+      "main": [
+        [
+          {
+            "node": "Respond Search Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-01-24T14:17:58.607Z",
+  "versionId": "1"
+}

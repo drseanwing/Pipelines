@@ -1,0 +1,352 @@
+{
+  "name": "FOAM Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "error-input",
+      "name": "Error Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "notes": "Receives error data from parent workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Error Classification and Analysis\n// Based on code/utils/error-handler.js\n\nconst error = $input.first().json;\n\n// Error type definitions\nconst ErrorTypes = {\n  API_RATE_LIMIT: 'API_RATE_LIMIT',\n  API_AUTHENTICATION: 'API_AUTHENTICATION',\n  API_NOT_FOUND: 'API_NOT_FOUND',\n  API_SERVER_ERROR: 'API_SERVER_ERROR',\n  API_TIMEOUT: 'API_TIMEOUT',\n  LLM_CONTEXT_LENGTH: 'LLM_CONTEXT_LENGTH',\n  LLM_CONTENT_FILTER: 'LLM_CONTENT_FILTER',\n  LLM_INVALID_RESPONSE: 'LLM_INVALID_RESPONSE',\n  VALIDATION_ERROR: 'VALIDATION_ERROR',\n  PARSING_ERROR: 'PARSING_ERROR',\n  UNKNOWN: 'UNKNOWN'\n};\n\n// Classify the error\nfunction classifyError(err) {\n  const message = (err.message || err.error_message || '').toLowerCase();\n  const statusCode = err.statusCode || err.status || err.code;\n  \n  if (statusCode === 429 || message.includes('rate limit')) {\n    return { type: ErrorTypes.API_RATE_LIMIT, retryable: true, delay: 30000 };\n  }\n  if (statusCode === 401 || statusCode === 403) {\n    return { type: ErrorTypes.API_AUTHENTICATION, retryable: false };\n  }\n  if (statusCode === 404) {\n    return { type: ErrorTypes.API_NOT_FOUND, retryable: false };\n  }\n  if (statusCode >= 500) {\n    return { type: ErrorTypes.API_SERVER_ERROR, retryable: true, delay: 10000 };\n  }\n  if (message.includes('timeout')) {\n    return { type: ErrorTypes.API_TIMEOUT, retryable: true, delay: 5000 };\n  }\n  if (message.includes('context length')) {\n    return { type: ErrorTypes.LLM_CONTEXT_LENGTH, retryable: false };\n  }\n  if (message.includes('content filter')) {\n    return { type: ErrorTypes.LLM_CONTENT_FILTER, retryable: false };\n  }\n  if (message.includes('json') || message.includes('parsing')) {\n    return { type: ErrorTypes.PARSING_ERROR, retryable: true, delay: 1000 };\n  }\n  \n  return { type: ErrorTypes.UNKNOWN, retryable: true, delay: 5000 };\n}\n\nconst classification = classifyError(error);\nconst attemptNumber = error.attempt_number || 1;\nconst maxRetries = error.max_retries || 3;\n\n// Calculate retry with exponential backoff\nlet shouldRetry = classification.retryable && attemptNumber < maxRetries;\nlet retryDelay = classification.delay * Math.pow(2, attemptNumber - 1);\nretryDelay = Math.min(retryDelay, 120000); // Max 2 minutes\n\n// Model fallbacks\nconst modelFallbacks = {\n  'claude-sonnet-4-20250514': 'gpt-4o',\n  'gpt-4o': 'gpt-4o-mini',\n  'ollama/llama3.2': 'ollama/mistral'\n};\n\nlet fallbackModel = null;\nif (!shouldRetry && error.current_model) {\n  fallbackModel = modelFallbacks[error.current_model] || null;\n}\n\nreturn {\n  json: {\n    original_error: error,\n    classification: classification,\n    error_id: 'err_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5),\n    timestamp: new Date().toISOString(),\n    should_retry: shouldRetry,\n    retry_delay_ms: shouldRetry ? retryDelay : null,\n    next_attempt: shouldRetry ? attemptNumber + 1 : null,\n    fallback_model: fallbackModel,\n    action: shouldRetry ? 'RETRY' : (fallbackModel ? 'USE_FALLBACK' : 'FAIL')\n  }\n};"
+      },
+      "id": "classify-error",
+      "name": "Classify Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "foam",
+        "table": "error_log",
+        "columns": "error_id, error_type, error_message, workflow_name, node_name, occurred_at, input_data, stack_trace, request_id",
+        "options": {}
+      },
+      "id": "log-to-database",
+      "name": "Log to Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [680, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credential",
+          "name": "PostgreSQL FOAM"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.classification.type }}",
+                    "rightValue": "API_RATE_LIMIT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Rate Limit"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.classification.type }}",
+                    "rightValue": "API_AUTHENTICATION",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Auth Error"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.should_retry }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Retryable"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.fallback_model }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notEquals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Use Fallback"
+            }
+          ],
+          "fallbackOutput": {
+            "enabled": true,
+            "outputKey": "Fatal"
+          }
+        }
+      },
+      "id": "route-by-action",
+      "name": "Route by Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare for retry after rate limit\nconst input = $input.first().json;\n\nreturn {\n  json: {\n    ...input,\n    action: 'WAIT_AND_RETRY',\n    wait_seconds: Math.ceil(input.retry_delay_ms / 1000),\n    message: `Rate limited. Waiting ${Math.ceil(input.retry_delay_ms / 1000)}s before retry ${input.next_attempt}`\n  }\n};"
+      },
+      "id": "handle-rate-limit",
+      "name": "Handle Rate Limit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1140, 100]
+    },
+    {
+      "parameters": {
+        "channel": "#foam-errors",
+        "text": "={{ 'CRITICAL: Authentication error in FOAM workflow. Check API credentials.\\n\\nError: ' + $json.original_error.error_message }}",
+        "otherOptions": {}
+      },
+      "id": "alert-auth-error",
+      "name": "Alert Auth Error",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [1140, 240],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-credential",
+          "name": "Slack FOAM"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare retry metadata\nconst input = $input.first().json;\n\nreturn {\n  json: {\n    ...input,\n    action: 'RETRY',\n    message: `Retrying (attempt ${input.next_attempt}). Waiting ${Math.ceil(input.retry_delay_ms / 1000)}s`\n  }\n};"
+      },
+      "id": "prepare-retry",
+      "name": "Prepare Retry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1140, 380]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare fallback model switch\nconst input = $input.first().json;\n\nreturn {\n  json: {\n    ...input,\n    action: 'USE_FALLBACK',\n    new_model: input.fallback_model,\n    message: `Switching from ${input.original_error.current_model || 'unknown'} to ${input.fallback_model}`\n  }\n};"
+      },
+      "id": "prepare-fallback",
+      "name": "Prepare Fallback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1140, 520]
+    },
+    {
+      "parameters": {
+        "channel": "#foam-errors",
+        "text": "={{ 'FOAM Workflow Fatal Error\\n\\nError Type: ' + $json.classification.type + '\\nMessage: ' + $json.original_error.error_message + '\\nWorkflow: ' + ($json.original_error.workflow_name || 'unknown') + '\\nRequest ID: ' + ($json.original_error.request_id || 'unknown') }}",
+        "otherOptions": {}
+      },
+      "id": "alert-fatal",
+      "name": "Alert Fatal Error",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [1140, 660],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-credential",
+          "name": "Slack FOAM"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge all branches and return error handling result\nconst items = $input.all();\nconst result = items[0]?.json || {};\n\nreturn {\n  json: {\n    error_id: result.error_id,\n    action: result.action || 'FAIL',\n    should_retry: result.should_retry || false,\n    retry_delay_ms: result.retry_delay_ms,\n    next_attempt: result.next_attempt,\n    fallback_model: result.fallback_model,\n    message: result.message || 'Error handling complete',\n    classification: result.classification,\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "id": "merge-and-return",
+      "name": "Merge and Return",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1380, 300]
+    }
+  ],
+  "connections": {
+    "Error Input": {
+      "main": [
+        [
+          {
+            "node": "Classify Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Error": {
+      "main": [
+        [
+          {
+            "node": "Log to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Database": {
+      "main": [
+        [
+          {
+            "node": "Route by Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Action": {
+      "main": [
+        [
+          {
+            "node": "Handle Rate Limit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert Auth Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Retry",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert Fatal Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Rate Limit": {
+      "main": [
+        [
+          {
+            "node": "Merge and Return",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert Auth Error": {
+      "main": [
+        [
+          {
+            "node": "Merge and Return",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Retry": {
+      "main": [
+        [
+          {
+            "node": "Merge and Return",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Fallback": {
+      "main": [
+        [
+          {
+            "node": "Merge and Return",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert Fatal Error": {
+      "main": [
+        [
+          {
+            "node": "Merge and Return",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "FOAM",
+      "id": "foam-tag"
+    },
+    {
+      "name": "Error-Handling",
+      "id": "error-tag"
+    },
+    {
+      "name": "Common",
+      "id": "common-tag"
+    }
+  ],
+  "versionId": "1.0.0",
+  "meta": {
+    "instanceId": "foam-n8n-instance",
+    "notes": "Reusable error handling sub-workflow. Call from any workflow to handle errors consistently."
+  }
+}

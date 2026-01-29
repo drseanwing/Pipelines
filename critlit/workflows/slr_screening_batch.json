@@ -1,0 +1,425 @@
+{
+  "name": "SLR Screening Batch",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "slr-screening-batch",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger-screening",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "webhookId": "slr-screening-batch-webhook"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "extract-screening-review-id",
+              "name": "review_id",
+              "value": "={{ $json.body.review_id }}",
+              "type": "string"
+            },
+            {
+              "id": "extract-batch-size",
+              "name": "batch_size",
+              "value": "={{ $json.body.batch_size || $env.SCREENING_BATCH_SIZE || 50 }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "extract-screening-params",
+      "name": "Extract Screening Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT r.id as review_id, r.pico, r.inclusion_criteria, r.exclusion_criteria\nFROM reviews r\nWHERE r.id = $1::uuid\nLIMIT 1;",
+        "options": {}
+      },
+      "id": "load-review-criteria",
+      "name": "Load Review Criteria",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [650, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-slr-database",
+          "name": "SLR PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT d.id, d.title, d.abstract, d.external_id, d.publication_year, d.authors\nFROM documents d\nLEFT JOIN screening_decisions sd ON d.id = sd.document_id\nWHERE d.review_id = $1::uuid\n  AND sd.id IS NULL\n  AND d.screening_status = 'pending'\nORDER BY d.created_at ASC\nLIMIT $2::integer;",
+        "options": {}
+      },
+      "id": "fetch-unscreened-documents",
+      "name": "Fetch Unscreened Documents",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [850, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-slr-database",
+          "name": "SLR PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "prepare-fetch-review-id",
+              "name": "review_id",
+              "value": "={{ $('Extract Screening Parameters').item.json.review_id }}",
+              "type": "string"
+            },
+            {
+              "id": "prepare-fetch-batch-size",
+              "name": "batch_size",
+              "value": "={{ $('Extract Screening Parameters').item.json.batch_size }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "prepare-fetch-params",
+      "name": "Prepare Fetch Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [750, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "split-in-batches",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare screening prompt for Ollama\nconst document = $input.item.json;\nconst criteria = $('Load Review Criteria').item.json;\n\nconst prompt = `You are a systematic review screener following Cochrane standards.\n\nINCLUSION CRITERIA:\nPopulation: ${criteria.pico.population}\nIntervention: ${criteria.pico.intervention}\nComparator: ${criteria.pico.comparator}\nOutcomes: ${criteria.pico.outcomes.join(', ')}\nStudy Types: ${criteria.pico.study_types.join(', ')}\n\nAdditional Inclusion Criteria:\n${JSON.stringify(criteria.inclusion_criteria, null, 2)}\n\nExclusion Criteria:\n${JSON.stringify(criteria.exclusion_criteria, null, 2)}\n\nDOCUMENT TO SCREEN:\nTitle: ${document.title}\nAbstract: ${document.abstract || 'No abstract available'}\nYear: ${document.publication_year || 'Unknown'}\n\nTASK:\nDetermine if this document meets the inclusion criteria. Respond with:\n1. DECISION: \"include\", \"exclude\", or \"uncertain\"\n2. CONFIDENCE: 0.0 to 1.0\n3. REASONING: 2-3 sentence justification\n4. EXCLUSION_REASON: If exclude, specify which criterion was not met\n\nRespond ONLY with valid JSON in this format:\n{\n  \"decision\": \"include|exclude|uncertain\",\n  \"confidence\": 0.85,\n  \"reasoning\": \"Your reasoning here\",\n  \"exclusion_reason\": \"Reason if excluded, null otherwise\"\n}`;\n\nreturn {\n  json: {\n    document_id: document.id,\n    review_id: criteria.review_id,\n    prompt: prompt,\n    title: document.title,\n    abstract: document.abstract\n  }\n};"
+      },
+      "id": "prepare-screening-prompt",
+      "name": "Prepare Screening Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "model": "={{ $env.OLLAMA_SCREENING_MODEL || 'llama3.1:8b' }}",
+        "prompt": "={{ $json.prompt }}",
+        "options": {
+          "temperature": 0.1,
+          "topP": 0.9
+        }
+      },
+      "id": "ollama-screening-agent",
+      "name": "Ollama Screening Agent",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [1450, 300],
+      "credentials": {
+        "ollamaApi": {
+          "id": "ollama-api-credentials",
+          "name": "Ollama API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse screening decision from LLM response\nconst response = $input.item.json;\nconst documentData = $('Prepare Screening Prompt').item.json;\n\nlet decision;\ntry {\n  // Try to parse JSON response from LLM\n  const text = response.response || response.text || response.message || JSON.stringify(response);\n  \n  // Extract JSON from response (might be wrapped in markdown code blocks)\n  const jsonMatch = text.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    decision = JSON.parse(jsonMatch[0]);\n  } else {\n    // Fallback: treat as uncertain if parsing fails\n    decision = {\n      decision: 'uncertain',\n      confidence: 0.5,\n      reasoning: 'Failed to parse LLM response',\n      exclusion_reason: null\n    };\n  }\n} catch (error) {\n  decision = {\n    decision: 'uncertain',\n    confidence: 0.5,\n    reasoning: `Error parsing response: ${error.message}`,\n    exclusion_reason: null\n  };\n}\n\nreturn {\n  json: {\n    document_id: documentData.document_id,\n    review_id: documentData.review_id,\n    decision: decision.decision,\n    confidence: decision.confidence,\n    reasoning: decision.reasoning,\n    exclusion_reason: decision.exclusion_reason,\n    screened_at: new Date().toISOString()\n  }\n};"
+      },
+      "id": "parse-screening-decision",
+      "name": "Parse Screening Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1650, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO screening_decisions (review_id, document_id, decision, confidence, reasoning, exclusion_reason, screened_at, screener_type, screener_id)\nVALUES (\n  $1::uuid,\n  $2::uuid,\n  $3::text,\n  $4::numeric,\n  $5::text,\n  $6::text,\n  $7::timestamptz,\n  'ai',\n  'ollama-llama3.1'\n)\nRETURNING *;",
+        "options": {}
+      },
+      "id": "save-screening-decision",
+      "name": "Save Screening Decision",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1850, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-slr-database",
+          "name": "SLR PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE documents\nSET screening_status = CASE\n  WHEN $2::text = 'include' THEN 'included'\n  WHEN $2::text = 'exclude' THEN 'excluded'\n  ELSE 'needs_review'\nEND,\nupdated_at = NOW()\nWHERE id = $1::uuid\nRETURNING *;",
+        "options": {}
+      },
+      "id": "update-document-status",
+      "name": "Update Document Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [2050, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-slr-database",
+          "name": "SLR PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "prepare-update-doc-id",
+              "name": "document_id",
+              "value": "={{ $('Parse Screening Decision').item.json.document_id }}",
+              "type": "string"
+            },
+            {
+              "id": "prepare-update-decision",
+              "name": "decision",
+              "value": "={{ $('Parse Screening Decision').item.json.decision }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "prepare-update-params",
+      "name": "Prepare Update Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [1950, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "aggregate-review-id",
+              "name": "review_id",
+              "value": "={{ $('Extract Screening Parameters').item.json.review_id }}",
+              "type": "string"
+            },
+            {
+              "id": "aggregate-processed-count",
+              "name": "documents_processed",
+              "value": "={{ $('Split In Batches').item.json.batchCount }}",
+              "type": "number"
+            },
+            {
+              "id": "aggregate-status",
+              "name": "status",
+              "value": "screening_complete",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "aggregate-results",
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [2250, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "respond-screening-complete",
+      "name": "Respond Screening Complete",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2450, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Screening Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Screening Parameters": {
+      "main": [
+        [
+          {
+            "node": "Load Review Criteria",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Review Criteria": {
+      "main": [
+        [
+          {
+            "node": "Prepare Fetch Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Fetch Parameters": {
+      "main": [
+        [
+          {
+            "node": "Fetch Unscreened Documents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Unscreened Documents": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [
+          {
+            "node": "Prepare Screening Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Screening Prompt": {
+      "main": [
+        [
+          {
+            "node": "Ollama Screening Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Screening Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse Screening Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Screening Decision": {
+      "main": [
+        [
+          {
+            "node": "Save Screening Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Screening Decision": {
+      "main": [
+        [
+          {
+            "node": "Prepare Update Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Update Parameters": {
+      "main": [
+        [
+          {
+            "node": "Update Document Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Document Status": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Results": {
+      "main": [
+        [
+          {
+            "node": "Respond Screening Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-01-24T14:17:58.607Z",
+  "versionId": "1"
+}

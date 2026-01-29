@@ -1,0 +1,224 @@
+{
+  "name": "QI-Research Pipeline - Intake Stage",
+  "id": "intake-workflow-001",
+  "tags": ["qi", "research", "intake", "stage-1"],
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {},
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "id": "intake-trigger"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Validate Input Node\n// Phase 4.2: Input validation using validateIntakeData function\n\nconst intake_data = $input.first().json;\n\ntry {\n  // Import validation schema (this will be available in n8n environment)\n  // For now, perform basic validation checks\n  \n  const required_fields = [\n    'project_title',\n    'project_type',\n    'concept_description',\n    'clinical_problem',\n    'target_population',\n    'setting',\n    'principal_investigator',\n    'intended_outcomes'\n  ];\n  \n  const missing_fields = [];\n  for (const field of required_fields) {\n    if (!intake_data[field]) {\n      missing_fields.push(field);\n    }\n  }\n  \n  if (missing_fields.length > 0) {\n    return {\n      json: {\n        valid: false,\n        errors: missing_fields.map(f => ({\n          field: f,\n          message: `${f} is required`\n        }))\n      }\n    };\n  }\n  \n  // Basic length validation\n  if (intake_data.concept_description.length < 500 || intake_data.concept_description.length > 2000) {\n    return {\n      json: {\n        valid: false,\n        errors: [{\n          field: 'concept_description',\n          message: 'Concept description must be between 500 and 2000 characters'\n        }]\n      }\n    };\n  }\n  \n  return {\n    json: {\n      valid: true,\n      intake_data: intake_data\n    }\n  };\n  \n} catch (error) {\n  return {\n    json: {\n      valid: false,\n      errors: [{\n        field: 'general',\n        message: error.message\n      }]\n    }\n  };\n}"
+      },
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [450, 300],
+      "id": "validate-input"
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "prompt": "=You are an expert in classifying healthcare improvement projects as Quality Improvement (QI), Research, or Hybrid projects.\n\nBased on the following project information, classify the project type with high confidence:\n\n**Project Title:** {{ $json.intake_data.project_title }}\n**Declared Type:** {{ $json.intake_data.project_type }}\n**Concept Description:** {{ $json.intake_data.concept_description }}\n**Clinical Problem:** {{ $json.intake_data.clinical_problem }}\n**Target Population:** {{ $json.intake_data.target_population }}\n**Setting:** {{ $json.intake_data.setting }}\n**Intended Outcomes:** {{ $json.intake_data.intended_outcomes }}\n\nProvide your classification in JSON format:\n{\n  \"project_type\": \"QI\" | \"RESEARCH\" | \"HYBRID\",\n  \"confidence\": 0.0-1.0,\n  \"reasoning\": \"Brief explanation of classification decision\",\n  \"suggested_designs\": [\"List of appropriate study designs\"]\n}\n\nClassification criteria:\n- **QI**: Aims to improve existing processes/outcomes using evidence-based interventions in a specific setting\n- **RESEARCH**: Aims to generate generalizable knowledge, involves hypothesis testing, or compares novel interventions\n- **HYBRID**: Contains both QI and research elements\n\nReturn ONLY the JSON object, no additional text."
+      },
+      "name": "Classify Project",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [650, 300],
+      "id": "classify-project",
+      "credentials": {
+        "anthropicApi": {
+          "id": "1",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Determine Frameworks Node\n// Phase 4.4: Framework determination based on classification\n\nconst classification = JSON.parse($input.first().json.output);\nconst intake_data = $input.first().json.intake_data;\n\n// Design Matrix (from constants.ts)\nconst DESIGN_MATRIX = {\n  QI: {\n    default: 'PDSA_CYCLE',\n    options: ['PDSA_CYCLE', 'IHI_MODEL', 'LEAN_SIX_SIGMA', 'PRE_POST'],\n    reporting_guideline: 'SQUIRE'\n  },\n  RESEARCH: {\n    interventional: {\n      randomised: {\n        default: 'RCT',\n        options: ['RCT', 'CLUSTER_RCT', 'STEPPED_WEDGE'],\n        reporting_guideline: 'CONSORT'\n      },\n      non_randomised: {\n        default: 'QUASI_EXPERIMENTAL',\n        options: ['PRE_POST', 'ITS', 'CONTROLLED_BA'],\n        reporting_guideline: 'TREND'\n      }\n    },\n    observational: {\n      default: 'COHORT',\n      options: ['COHORT', 'CASE_CONTROL', 'CROSS_SECTIONAL'],\n      reporting_guideline: 'STROBE'\n    },\n    qualitative: {\n      default: 'THEMATIC_ANALYSIS',\n      options: ['THEMATIC', 'GROUNDED_THEORY', 'PHENOMENOLOGY'],\n      reporting_guideline: 'SRQR'\n    }\n  }\n};\n\nconst ETHICS_PATHWAYS = {\n  QI_REGISTRATION: {\n    name: 'QI Registration',\n    approval_body: 'Metro North Clinical Governance',\n    requires_hrec: false,\n    requires_rgo: false,\n    estimated_timeline_weeks: 2\n  },\n  LOW_RISK_RESEARCH: {\n    name: 'Low Risk Research',\n    approval_body: 'HREC via LNR pathway',\n    requires_hrec: true,\n    requires_rgo: false,\n    estimated_timeline_weeks: 6\n  },\n  FULL_HREC_REVIEW: {\n    name: 'Full HREC Review',\n    approval_body: 'HREC',\n    requires_hrec: true,\n    requires_rgo: true,\n    estimated_timeline_weeks: 12\n  },\n  HYBRID_REVIEW: {\n    name: 'Hybrid (QI + Research)',\n    approval_body: 'HREC + Clinical Governance',\n    requires_hrec: true,\n    requires_rgo: true,\n    estimated_timeline_weeks: 14\n  }\n};\n\n// Determine applicable frameworks\nlet applicable_design_frameworks = [];\nlet reporting_guideline = null;\nlet ethics_framework = null;\n\nif (classification.project_type === 'QI') {\n  applicable_design_frameworks = DESIGN_MATRIX.QI.options;\n  reporting_guideline = DESIGN_MATRIX.QI.reporting_guideline;\n  ethics_framework = ETHICS_PATHWAYS.QI_REGISTRATION;\n} else if (classification.project_type === 'RESEARCH') {\n  // Default to observational for now, can be refined in methods stage\n  applicable_design_frameworks = DESIGN_MATRIX.RESEARCH.observational.options;\n  reporting_guideline = DESIGN_MATRIX.RESEARCH.observational.reporting_guideline;\n  ethics_framework = ETHICS_PATHWAYS.LOW_RISK_RESEARCH;\n} else if (classification.project_type === 'HYBRID') {\n  applicable_design_frameworks = [\n    ...DESIGN_MATRIX.QI.options,\n    ...DESIGN_MATRIX.RESEARCH.observational.options\n  ];\n  reporting_guideline = 'SQUIRE + STROBE';\n  ethics_framework = ETHICS_PATHWAYS.HYBRID_REVIEW;\n}\n\n// Determine governance requirements based on setting\nconst governance_requirements = [];\nif (intake_data.setting.toLowerCase().includes('metro north') || \n    intake_data.setting.toLowerCase().includes('qld health')) {\n  governance_requirements.push('QH_RESEARCH_GOVERNANCE');\n  governance_requirements.push('MN_CLINICAL_GOVERNANCE_POLICY');\n}\ngovernance_requirements.push('NHMRC_NATIONAL_STATEMENT');\ngovernance_requirements.push('PRIVACY_ACT_1988');\ngovernance_requirements.push('INFORMATION_PRIVACY_ACT_2009_QLD');\n\nreturn {\n  json: {\n    intake_data: intake_data,\n    classification: classification,\n    frameworks: {\n      applicable_design_frameworks: applicable_design_frameworks,\n      reporting_guideline: reporting_guideline,\n      ethics_framework: ethics_framework,\n      governance_requirements: governance_requirements\n    }\n  }\n};"
+      },
+      "name": "Determine Frameworks",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [850, 300],
+      "id": "determine-frameworks"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Create Project Record Node\n// Phase 4.5: Project record creation with UUID and structure\n\nconst { v4: uuidv4 } = require('uuid');\n\nconst intake_data = $input.first().json.intake_data;\nconst classification = $input.first().json.classification;\nconst frameworks = $input.first().json.frameworks;\n\n// Generate project ID\nconst project_id = uuidv4();\n\n// Create project record\nconst project_record = {\n  id: project_id,\n  status: 'INTAKE_COMPLETE',\n  created_at: new Date().toISOString(),\n  updated_at: new Date().toISOString(),\n  intake: intake_data,\n  classification: classification,\n  frameworks: frameworks,\n  research: null,\n  methodology: null,\n  ethics: null,\n  documents: null,\n  checkpoints: {\n    intake_approved: false,\n    research_approved: false,\n    methodology_approved: false,\n    ethics_approved: false,\n    documents_approved: false\n  },\n  owner_id: null,\n  deleted_at: null\n};\n\nreturn {\n  json: project_record\n};"
+      },
+      "name": "Create Project Record",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1050, 300],
+      "id": "create-project-record"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO projects (id, status, created_at, updated_at, intake, classification, frameworks, research, methodology, ethics, documents, checkpoints, owner_id, deleted_at)\nVALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)\nRETURNING *;",
+        "additionalFields": {
+          "queryParameters": "={{ JSON.stringify([\n  $json.id,\n  $json.status,\n  $json.created_at,\n  $json.updated_at,\n  JSON.stringify($json.intake),\n  JSON.stringify($json.classification),\n  JSON.stringify($json.frameworks),\n  $json.research,\n  $json.methodology,\n  $json.ethics,\n  $json.documents,\n  JSON.stringify($json.checkpoints),\n  $json.owner_id,\n  $json.deleted_at\n]) }}"
+        }
+      },
+      "name": "Store in Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1250, 300],
+      "id": "store-in-database",
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO audit_log (project_id, timestamp, action, actor, details, previous_state, new_state)\nVALUES ($1, $2, $3, $4, $5, $6, $7);",
+        "additionalFields": {
+          "queryParameters": "={{ JSON.stringify([\n  $json.id,\n  new Date().toISOString(),\n  'PROJECT_CREATED',\n  'system',\n  JSON.stringify({ stage: 'intake', classification: $json.classification.project_type }),\n  null,\n  JSON.stringify({ status: 'INTAKE_COMPLETE' })\n]) }}"
+        }
+      },
+      "name": "Create Audit Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1250, 450],
+      "id": "create-audit-log",
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "fromEmail": "={{ $env.SMTP_FROM }}",
+        "toEmail": "={{ $json.intake.principal_investigator.email }}",
+        "subject": "QI/Research Pipeline - Intake Stage Complete",
+        "emailFormat": "html",
+        "message": "=<html>\n<body>\n<h2>Intake Stage Complete</h2>\n<p>Dear {{ $json.intake.principal_investigator.name }},</p>\n\n<p>The intake stage for your project has been completed:</p>\n\n<h3>Project Details</h3>\n<ul>\n  <li><strong>Project ID:</strong> {{ $json.id }}</li>\n  <li><strong>Title:</strong> {{ $json.intake.project_title }}</li>\n  <li><strong>Classification:</strong> {{ $json.classification.project_type }} ({{ Math.round($json.classification.confidence * 100) }}% confidence)</li>\n  <li><strong>Reporting Guideline:</strong> {{ $json.frameworks.reporting_guideline }}</li>\n  <li><strong>Ethics Pathway:</strong> {{ $json.frameworks.ethics_framework.name }}</li>\n</ul>\n\n<h3>Next Steps</h3>\n<p>Please review the classification and framework determination. Click the link below to approve or request modifications:</p>\n\n<p><a href=\"{{ $env.WEBHOOK_URL }}/checkpoint/intake-approved?project_id={{ $json.id }}&action=approve\">Approve Intake</a></p>\n<p><a href=\"{{ $env.WEBHOOK_URL }}/checkpoint/intake-approved?project_id={{ $json.id }}&action=reject\">Request Changes</a></p>\n\n<p>Best regards,<br>\nQI/Research Pipeline Team</p>\n</body>\n</html>"
+      },
+      "name": "Send Notification",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1450, 300],
+      "id": "send-notification",
+      "credentials": {
+        "smtp": {
+          "id": "1",
+          "name": "SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({\n  success: true,\n  project_id: $json.id,\n  status: $json.status,\n  classification: $json.classification,\n  frameworks: $json.frameworks,\n  message: 'Intake stage completed successfully'\n}) }}"
+      },
+      "name": "Return Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1650, 300],
+      "id": "return-result"
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Classify Project",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Project": {
+      "main": [
+        [
+          {
+            "node": "Determine Frameworks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determine Frameworks": {
+      "main": [
+        [
+          {
+            "node": "Create Project Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Project Record": {
+      "main": [
+        [
+          {
+            "node": "Store in Database",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Create Audit Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store in Database": {
+      "main": [
+        [
+          {
+            "node": "Send Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Notification": {
+      "main": [
+        [
+          {
+            "node": "Return Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "Australia/Brisbane",
+    "executionOrder": "v1"
+  },
+  "staticData": null
+}

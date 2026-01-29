@@ -1,0 +1,264 @@
+# CritLit Systematic Literature Review Pipeline - Git Ignore Configuration
+
+# =============================================================================
+# ENVIRONMENT AND SECRETS
+# =============================================================================
+# Environment variables with sensitive credentials
+.env
+.env.local
+.env.*.local
+
+# Docker environment files with actual credentials
+docker-compose.override.yml
+
+# =============================================================================
+# PYTHON
+# =============================================================================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# =============================================================================
+# NODE.JS / N8N
+# =============================================================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# =============================================================================
+# DOCKER
+# =============================================================================
+# Docker volumes and data directories
+postgres_data/
+n8n_data/
+redis_data/
+ollama_data/
+ilibrarian_data/
+
+# =============================================================================
+# DATABASE
+# =============================================================================
+# Database dumps and backups
+*.sql
+*.sqlite
+*.db
+*.dump
+
+# Exclude actual database files (keep migration scripts)
+!migrations/*.sql
+!init-scripts/*.sql
+
+# =============================================================================
+# LOGS
+# =============================================================================
+logs/
+*.log
+
+# =============================================================================
+# TEMPORARY FILES
+# =============================================================================
+# Temporary directories
+tmp/
+temp/
+.tmp/
+
+# Temporary test files
+test_output/
+test_data/
+scratch/
+
+# Editor temporary files
+*.swp
+*.swo
+*.bak
+*.tmp
+
+# =============================================================================
+# IDE AND EDITOR CONFIGURATIONS
+# =============================================================================
+# VS Code
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Emacs
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+*~
+
+# Vim
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-rt-v][a-z]
+[._]ss[a-gi-z]
+[._]sw[a-p]
+
+# =============================================================================
+# OPERATING SYSTEM FILES
+# =============================================================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+.directory
+.Trash-*
+
+# =============================================================================
+# PDF AND DOCUMENT FILES
+# =============================================================================
+# Exclude downloaded PDFs (large files, may be copyrighted)
+*.pdf
+!docs/*.pdf  # Keep documentation PDFs
+
+# =============================================================================
+# MODELS AND DATA
+# =============================================================================
+# Ollama model files (these are large and should be pulled at runtime)
+models/
+*.gguf
+*.bin
+
+# Large data files
+*.csv
+*.tsv
+*.json.gz
+*.parquet
+
+# Keep example/test data files
+!test_data/**/*.csv
+!examples/**/*.json
+
+# =============================================================================
+# RESEARCH OUTPUT FILES
+# =============================================================================
+# Generated PRISMA diagrams and reports
+output/
+reports/
+prisma_diagrams/
+*.docx
+*.xlsx
+
+# Keep template files
+!templates/**/*.docx
+!templates/**/*.xlsx
+
+# =============================================================================
+# SECURITY
+# =============================================================================
+# Private keys and certificates
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# =============================================================================
+# MISCELLANEOUS
+# =============================================================================
+# Compiled files
+*.com
+*.class
+*.dll
+*.exe
+*.o
+
+# Archives
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+# =============================================================================
+# N8N SPECIFIC
+# =============================================================================
+# N8N user data (contains credentials and workflow execution history)
+.n8n/
+
+# N8N backup files
+backup_*.json
+.omc/

@@ -1,0 +1,544 @@
+{
+  "name": "QI-Research Pipeline: Research Stage",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "research-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract project data and prepare for research stage\nconst input = $input.first().json;\n\n// Validate we have required data from intake stage\nif (!input.project || !input.research_brief) {\n  throw new Error('Missing required project or research_brief from intake stage');\n}\n\nconst project = input.project;\nconst researchBrief = input.research_brief;\n\nreturn [{\n  json: {\n    project_id: project.id,\n    project: project,\n    research_brief: researchBrief,\n    clinical_problem: researchBrief.clinical_problem,\n    target_population: researchBrief.target_population,\n    setting: researchBrief.setting,\n    intended_outcomes: researchBrief.intended_outcomes,\n    project_type: researchBrief.project_type\n  }\n}];"
+      },
+      "id": "extract-context",
+      "name": "Extract Project Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "maxTokens": 2048,
+          "temperature": 0.3
+        },
+        "messages": {
+          "messageValues": [
+            {
+              "message": "={{ `You are a research librarian specialising in emergency medicine and clinical research. Generate a comprehensive literature search strategy for the following project.\n\n## Clinical Problem\n${$json.clinical_problem}\n\n## Target Population\n${$json.target_population}\n\n## Setting\n${$json.setting}\n\n## Intended Outcomes\n${$json.intended_outcomes}\n\n## Project Type\n${$json.project_type}\n\n## Task\nCreate a detailed search strategy including:\n1. PubMed search query using MeSH terms and keywords\n2. Key MeSH terms to use\n3. Free-text keywords and synonyms\n4. Recommended date range for the search\n5. Suggested filters (article types, languages)\n\nRespond ONLY with valid JSON in this exact format:\n{\n  \"pubmed_query\": \"full PubMed query string with Boolean operators\",\n  \"mesh_terms\": [\"MeSH term 1\", \"MeSH term 2\"],\n  \"keywords\": [\"keyword1\", \"keyword2\"],\n  \"synonyms\": {\"term1\": [\"syn1\", \"syn2\"]},\n  \"date_range\": {\"start\": \"YYYY\", \"end\": \"YYYY\"},\n  \"filters\": {\"article_types\": [\"type1\"], \"languages\": [\"English\"]},\n  \"search_rationale\": \"explanation of search strategy\",\n  \"expected_sensitivity\": \"high/medium/low\",\n  \"expected_specificity\": \"high/medium/low\"\n}` }}"
+            }
+          ]
+        }
+      },
+      "id": "generate-search-strategy",
+      "name": "LLM: Generate Search Strategy",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [690, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credentials",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse search strategy and prepare PubMed query\nconst input = $input.first().json;\nconst llmResponse = $('LLM: Generate Search Strategy').first().json.message.content;\n\nlet searchStrategy;\ntry {\n  let jsonStr = llmResponse;\n  const jsonMatch = llmResponse.match(/```json\\n?([\\s\\S]*?)\\n?```/);\n  if (jsonMatch) {\n    jsonStr = jsonMatch[1];\n  }\n  searchStrategy = JSON.parse(jsonStr);\n} catch (e) {\n  throw new Error(`Failed to parse search strategy: ${e.message}`);\n}\n\n// URL encode the PubMed query\nconst encodedQuery = encodeURIComponent(searchStrategy.pubmed_query);\n\nreturn [{\n  json: {\n    ...input,\n    search_strategy: searchStrategy,\n    encoded_query: encodedQuery\n  }\n}];"
+      },
+      "id": "prepare-search",
+      "name": "Prepare Search Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [910, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "db",
+              "value": "pubmed"
+            },
+            {
+              "name": "term",
+              "value": "={{ $json.encoded_query }}"
+            },
+            {
+              "name": "retmax",
+              "value": "100"
+            },
+            {
+              "name": "retmode",
+              "value": "json"
+            },
+            {
+              "name": "usehistory",
+              "value": "y"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "search-pubmed",
+      "name": "Search PubMed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1130, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process PubMed search results and prepare for abstract fetch\nconst input = $input.first().json;\nconst searchResults = $('Search PubMed').first().json;\n\nconst esearchResult = searchResults.esearchresult;\n\nif (!esearchResult || !esearchResult.idlist || esearchResult.idlist.length === 0) {\n  // Return empty results if no papers found\n  return [{\n    json: {\n      ...input,\n      pubmed_ids: [],\n      search_count: 0,\n      webenv: null,\n      query_key: null\n    }\n  }];\n}\n\nconst pmids = esearchResult.idlist;\nconst webenv = esearchResult.webenv;\nconst queryKey = esearchResult.querykey;\n\nreturn [{\n  json: {\n    project_id: input.project_id,\n    project: input.project,\n    research_brief: input.research_brief,\n    search_strategy: input.search_strategy,\n    pubmed_ids: pmids,\n    pubmed_ids_string: pmids.join(','),\n    search_count: parseInt(esearchResult.count),\n    webenv: webenv,\n    query_key: queryKey\n  }\n}];"
+      },
+      "id": "process-search-results",
+      "name": "Process Search Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1350, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-results",
+              "leftValue": "={{ $json.search_count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-results",
+      "name": "Has Results?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1570, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "db",
+              "value": "pubmed"
+            },
+            {
+              "name": "id",
+              "value": "={{ $json.pubmed_ids_string }}"
+            },
+            {
+              "name": "rettype",
+              "value": "abstract"
+            },
+            {
+              "name": "retmode",
+              "value": "xml"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "fetch-abstracts",
+      "name": "Fetch Abstracts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1790, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse XML abstracts and extract article data\nconst input = $input.first().json;\nconst xmlData = $('Fetch Abstracts').first().json.data;\n\n// Simple XML parsing for PubMed articles\nconst articles = [];\n\n// Extract articles using regex patterns (simplified XML parsing)\nconst articleMatches = xmlData.match(/<PubmedArticle>[\\s\\S]*?<\\/PubmedArticle>/g) || [];\n\nfor (const articleXml of articleMatches) {\n  try {\n    // Extract PMID\n    const pmidMatch = articleXml.match(/<PMID[^>]*>([^<]+)<\\/PMID>/);\n    const pmid = pmidMatch ? pmidMatch[1] : null;\n    \n    // Extract Title\n    const titleMatch = articleXml.match(/<ArticleTitle>([\\s\\S]*?)<\\/ArticleTitle>/);\n    const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : 'Unknown Title';\n    \n    // Extract Abstract\n    const abstractMatch = articleXml.match(/<AbstractText[^>]*>([\\s\\S]*?)<\\/AbstractText>/g);\n    let abstract = '';\n    if (abstractMatch) {\n      abstract = abstractMatch.map(a => a.replace(/<[^>]+>/g, '').trim()).join(' ');\n    }\n    \n    // Extract Authors\n    const authorMatches = articleXml.match(/<Author[^>]*>[\\s\\S]*?<LastName>([^<]+)<\\/LastName>[\\s\\S]*?<ForeName>([^<]*)<\\/ForeName>[\\s\\S]*?<\\/Author>/g) || [];\n    const authors = authorMatches.map(a => {\n      const lastName = a.match(/<LastName>([^<]+)<\\/LastName>/);\n      const foreName = a.match(/<ForeName>([^<]*)<\\/ForeName>/);\n      return {\n        lastName: lastName ? lastName[1] : '',\n        foreName: foreName ? foreName[1] : '',\n        initials: foreName ? foreName[1].split(' ').map(n => n[0]).join('') : ''\n      };\n    });\n    \n    // Extract Journal\n    const journalMatch = articleXml.match(/<Title>([^<]+)<\\/Title>/);\n    const journal = journalMatch ? journalMatch[1] : 'Unknown Journal';\n    \n    // Extract Year\n    const yearMatch = articleXml.match(/<PubDate>[\\s\\S]*?<Year>([^<]+)<\\/Year>/);\n    const year = yearMatch ? parseInt(yearMatch[1]) : null;\n    \n    // Extract DOI\n    const doiMatch = articleXml.match(/<ArticleId IdType=\"doi\">([^<]+)<\\/ArticleId>/);\n    const doi = doiMatch ? doiMatch[1] : null;\n    \n    articles.push({\n      pmid,\n      doi,\n      title,\n      authors,\n      journal,\n      year,\n      abstract\n    });\n  } catch (e) {\n    // Skip malformed articles\n    console.log('Error parsing article:', e.message);\n  }\n}\n\nreturn [{\n  json: {\n    project_id: input.project_id,\n    project: input.project,\n    research_brief: input.research_brief,\n    search_strategy: input.search_strategy,\n    search_count: input.search_count,\n    articles: articles,\n    articles_fetched: articles.length\n  }\n}];"
+      },
+      "id": "parse-abstracts",
+      "name": "Parse Abstracts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2010, 200]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "maxTokens": 4096,
+          "temperature": 0.2
+        },
+        "messages": {
+          "messageValues": [
+            {
+              "message": "={{ `You are analysing research articles for relevance to a clinical research project.\n\n## Project Context\nClinical Problem: ${$json.research_brief.clinical_problem}\nTarget Population: ${$json.research_brief.target_population}\nIntended Outcomes: ${$json.research_brief.intended_outcomes}\n\n## Articles to Analyse\n${$json.articles.slice(0, 30).map((a, i) => `\n### Article ${i + 1}\nPMID: ${a.pmid}\nTitle: ${a.title}\nAuthors: ${a.authors.map(au => au.lastName + ' ' + au.initials).join(', ')}\nJournal: ${a.journal} (${a.year})\nAbstract: ${a.abstract}\n`).join('\\n---\\n')}\n\n## Task\nFor each article, assess its relevance to the project. Return a JSON array with each article scored and annotated.\n\nRespond ONLY with valid JSON in this format:\n{\n  \"ranked_articles\": [\n    {\n      \"pmid\": \"string\",\n      \"relevance_score\": 0.0-1.0,\n      \"relevance_category\": \"PRIMARY|SECONDARY|BACKGROUND|NOT_RELEVANT\",\n      \"key_findings\": [\"finding 1\", \"finding 2\"],\n      \"methodology_notes\": \"study design and methods\",\n      \"limitations\": [\"limitation 1\"],\n      \"applicability_to_project\": \"how this relates to the project\"\n    }\n  ],\n  \"ranking_rationale\": \"overall explanation of ranking approach\"\n}` }}"
+            }
+          ]
+        }
+      },
+      "id": "rank-articles",
+      "name": "LLM: Process and Rank Articles",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [2230, 200],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credentials",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge ranked article data with full article data\nconst input = $input.first().json;\nconst llmResponse = $('LLM: Process and Rank Articles').first().json.message.content;\n\nlet rankings;\ntry {\n  let jsonStr = llmResponse;\n  const jsonMatch = llmResponse.match(/```json\\n?([\\s\\S]*?)\\n?```/);\n  if (jsonMatch) {\n    jsonStr = jsonMatch[1];\n  }\n  rankings = JSON.parse(jsonStr);\n} catch (e) {\n  throw new Error(`Failed to parse article rankings: ${e.message}`);\n}\n\n// Merge rankings with article data\nconst articlesMap = new Map(input.articles.map(a => [a.pmid, a]));\n\nconst primaryLiterature = [];\nconst secondaryLiterature = [];\n\nfor (const ranked of rankings.ranked_articles) {\n  const article = articlesMap.get(ranked.pmid);\n  if (!article) continue;\n  \n  const processedArticle = {\n    ...article,\n    relevance_score: ranked.relevance_score,\n    relevance_category: ranked.relevance_category,\n    key_findings: ranked.key_findings,\n    methodology_notes: ranked.methodology_notes,\n    limitations: ranked.limitations,\n    applicability_to_project: ranked.applicability_to_project\n  };\n  \n  if (ranked.relevance_score >= 0.7) {\n    primaryLiterature.push(processedArticle);\n  } else if (ranked.relevance_score >= 0.4) {\n    secondaryLiterature.push(processedArticle);\n  }\n}\n\n// Sort by relevance score\nprimaryLiterature.sort((a, b) => b.relevance_score - a.relevance_score);\nsecondaryLiterature.sort((a, b) => b.relevance_score - a.relevance_score);\n\nreturn [{\n  json: {\n    project_id: input.project_id,\n    project: input.project,\n    research_brief: input.research_brief,\n    search_strategy: input.search_strategy,\n    primary_literature: primaryLiterature,\n    secondary_literature: secondaryLiterature,\n    total_articles_processed: input.articles.length,\n    ranking_rationale: rankings.ranking_rationale\n  }\n}];"
+      },
+      "id": "merge-rankings",
+      "name": "Merge Article Rankings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2450, 200]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "maxTokens": 4096,
+          "temperature": 0.3
+        },
+        "messages": {
+          "messageValues": [
+            {
+              "message": "={{ `You are an expert research synthesist specialising in emergency medicine. Synthesise the following research articles into a coherent evidence summary.\n\n## Research Question\n${$json.research_brief.clinical_problem}\n\n## Target Population\n${$json.research_brief.target_population}\n\n## Intended Outcomes\n${$json.research_brief.intended_outcomes}\n\n## Primary Literature (High Relevance)\n${$json.primary_literature.map((a, i) => `\n${i + 1}. ${a.authors[0]?.lastName || 'Unknown'} et al. (${a.year})\n   Title: ${a.title}\n   Key Findings: ${a.key_findings.join('; ')}\n   Methods: ${a.methodology_notes}\n   Limitations: ${a.limitations.join('; ')}\n`).join('\\n')}\n\n## Secondary Literature (Moderate Relevance)\n${$json.secondary_literature.slice(0, 10).map((a, i) => `\n${i + 1}. ${a.authors[0]?.lastName || 'Unknown'} et al. (${a.year}) - ${a.title}\n   Key Findings: ${a.key_findings.join('; ')}\n`).join('\\n')}\n\n## Task\nCreate an evidence synthesis that:\n1. Summarises the current state of knowledge\n2. Identifies consistent findings across studies\n3. Notes areas of disagreement or conflicting evidence\n4. Highlights methodological strengths and limitations\n5. Identifies clear knowledge gaps\n\n## Requirements\n- Write in flowing prose paragraphs, not bullet points\n- Use Vancouver citation style [1], [2], etc.\n- Maintain objective, scientific tone\n- Maximum 1500 words\n- Structure: Overview -> Key Findings -> Methodological Considerations -> Gaps\n\nRespond with valid JSON:\n{\n  \"evidence_synthesis\": \"full prose synthesis text with [1], [2] citations\",\n  \"key_themes\": [\"theme 1\", \"theme 2\"],\n  \"evidence_strength\": \"strong/moderate/weak/insufficient\",\n  \"consistency_assessment\": \"description of evidence consistency\",\n  \"gap_analysis\": {\n    \"identified_gaps\": [\"gap 1\", \"gap 2\"],\n    \"gap_significance\": [\"why gap 1 matters\", \"why gap 2 matters\"],\n    \"research_opportunities\": [\"opportunity 1\", \"opportunity 2\"]\n  },\n  \"word_count\": number\n}` }}"
+            }
+          ]
+        }
+      },
+      "id": "synthesize-evidence",
+      "name": "LLM: Synthesize Evidence",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [2670, 200],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credentials",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format citations in Vancouver style\nconst input = $input.first().json;\nconst llmResponse = $('LLM: Synthesize Evidence').first().json.message.content;\n\nlet synthesis;\ntry {\n  let jsonStr = llmResponse;\n  const jsonMatch = llmResponse.match(/```json\\n?([\\s\\S]*?)\\n?```/);\n  if (jsonMatch) {\n    jsonStr = jsonMatch[1];\n  }\n  synthesis = JSON.parse(jsonStr);\n} catch (e) {\n  throw new Error(`Failed to parse evidence synthesis: ${e.message}`);\n}\n\n// Format citations in Vancouver style\nfunction formatVancouverCitation(article, index) {\n  const authors = article.authors.slice(0, 6).map(a => `${a.lastName} ${a.initials}`).join(', ');\n  const etAl = article.authors.length > 6 ? ', et al' : '';\n  const title = article.title.replace(/\\.$/, '');\n  const journal = article.journal;\n  const year = article.year;\n  const doi = article.doi ? ` doi: ${article.doi}` : '';\n  \n  return `${index}. ${authors}${etAl}. ${title}. ${journal}. ${year}.${doi}`;\n}\n\n// Combine primary and secondary for citations\nconst allArticles = [...input.primary_literature, ...input.secondary_literature];\nconst citations = allArticles.map((article, i) => formatVancouverCitation(article, i + 1));\n\n// Create research results object\nconst researchResults = {\n  search_strategy: {\n    ...input.search_strategy,\n    search_date: new Date().toISOString(),\n    results_count: input.total_articles_processed\n  },\n  primary_literature: input.primary_literature,\n  secondary_literature: input.secondary_literature,\n  gap_analysis: synthesis.gap_analysis,\n  evidence_synthesis: synthesis.evidence_synthesis,\n  evidence_strength: synthesis.evidence_strength,\n  key_themes: synthesis.key_themes,\n  consistency_assessment: synthesis.consistency_assessment,\n  citations: citations\n};\n\nreturn [{\n  json: {\n    project_id: input.project_id,\n    project: input.project,\n    research_brief: input.research_brief,\n    research_results: researchResults\n  }\n}];"
+      },
+      "id": "format-citations",
+      "name": "Format Citations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2890, 200]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": "public",
+        "table": "projects",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "research": "={{ JSON.stringify($json.research_results) }}",
+            "status": "RESEARCH_COMPLETE",
+            "updated_at": "={{ new Date().toISOString() }}"
+          }
+        },
+        "where": {
+          "values": [
+            {
+              "column": "id",
+              "value": "={{ $json.project_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "update-project",
+      "name": "Update Project Record",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [3110, 200],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "QI Pipeline Database"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "audit_log",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "project_id": "={{ $json.project_id }}",
+            "timestamp": "={{ new Date().toISOString() }}",
+            "action": "RESEARCH_COMPLETE",
+            "actor": "research_workflow",
+            "details": "={{ JSON.stringify({ articles_found: $json.research_results.primary_literature.length + $json.research_results.secondary_literature.length, evidence_strength: $json.research_results.evidence_strength }) }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "log-audit",
+      "name": "Log Audit Entry",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [3330, 200],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "QI Pipeline Database"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare final output for return to master workflow\nconst formatOutput = $('Format Citations').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    project_id: formatOutput.project_id,\n    status: 'RESEARCH_COMPLETE',\n    \n    // Research outputs\n    search_strategy: formatOutput.research_results.search_strategy,\n    literature_summary: formatOutput.research_results.evidence_synthesis,\n    gap_analysis: formatOutput.research_results.gap_analysis,\n    evidence_table: {\n      primary_count: formatOutput.research_results.primary_literature.length,\n      secondary_count: formatOutput.research_results.secondary_literature.length,\n      primary_articles: formatOutput.research_results.primary_literature,\n      secondary_articles: formatOutput.research_results.secondary_literature\n    },\n    reference_library: formatOutput.research_results.citations,\n    evidence_strength: formatOutput.research_results.evidence_strength,\n    key_themes: formatOutput.research_results.key_themes,\n    \n    // Full research results for next stage\n    research: formatOutput.research_results,\n    \n    // Project context for next stage\n    project: formatOutput.project,\n    \n    // Workflow metadata\n    workflow_metadata: {\n      stage: 'research',\n      completed_at: new Date().toISOString(),\n      next_stage: 'methodology',\n      requires_checkpoint: true,\n      checkpoint_items: [\n        'Validate search strategy completeness',\n        'Confirm key papers identified',\n        'Review gap analysis accuracy',\n        'Add any missed literature',\n        'Approve evidence synthesis direction'\n      ]\n    }\n  }\n}];"
+      },
+      "id": "prepare-output",
+      "name": "Prepare Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3550, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle case where no search results were found\nconst input = $input.first().json;\n\nreturn [{\n  json: {\n    success: true,\n    project_id: input.project_id,\n    status: 'RESEARCH_COMPLETE',\n    warning: 'No articles found in literature search',\n    \n    search_strategy: input.search_strategy,\n    literature_summary: 'No relevant literature was found using the specified search strategy. This may indicate a novel research area or a need to refine the search terms.',\n    gap_analysis: {\n      identified_gaps: ['Complete lack of prior research in this specific area'],\n      gap_significance: ['This represents an unexplored research opportunity'],\n      research_opportunities: ['Pioneer study in this field']\n    },\n    evidence_table: {\n      primary_count: 0,\n      secondary_count: 0,\n      primary_articles: [],\n      secondary_articles: []\n    },\n    reference_library: [],\n    evidence_strength: 'insufficient',\n    \n    research: {\n      search_strategy: input.search_strategy,\n      primary_literature: [],\n      secondary_literature: [],\n      gap_analysis: {\n        identified_gaps: ['Complete lack of prior research'],\n        research_opportunities: ['Pioneer study opportunity']\n      },\n      evidence_synthesis: 'No relevant literature found.',\n      citations: []\n    },\n    \n    project: input.project,\n    \n    workflow_metadata: {\n      stage: 'research',\n      completed_at: new Date().toISOString(),\n      next_stage: 'methodology',\n      requires_checkpoint: true,\n      checkpoint_items: [\n        'Review search strategy for potential improvements',\n        'Consider alternative search terms',\n        'Determine if this is truly a novel research area'\n      ]\n    }\n  }\n}];"
+      },
+      "id": "no-results-handler",
+      "name": "No Results Handler",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1790, 400]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Project Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Project Context": {
+      "main": [
+        [
+          {
+            "node": "LLM: Generate Search Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM: Generate Search Strategy": {
+      "main": [
+        [
+          {
+            "node": "Prepare Search Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Search Query": {
+      "main": [
+        [
+          {
+            "node": "Search PubMed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search PubMed": {
+      "main": [
+        [
+          {
+            "node": "Process Search Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Search Results": {
+      "main": [
+        [
+          {
+            "node": "Has Results?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Results?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Abstracts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Results Handler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Abstracts": {
+      "main": [
+        [
+          {
+            "node": "Parse Abstracts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Abstracts": {
+      "main": [
+        [
+          {
+            "node": "LLM: Process and Rank Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM: Process and Rank Articles": {
+      "main": [
+        [
+          {
+            "node": "Merge Article Rankings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Article Rankings": {
+      "main": [
+        [
+          {
+            "node": "LLM: Synthesize Evidence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM: Synthesize Evidence": {
+      "main": [
+        [
+          {
+            "node": "Format Citations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Citations": {
+      "main": [
+        [
+          {
+            "node": "Update Project Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Project Record": {
+      "main": [
+        [
+          {
+            "node": "Log Audit Entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Audit Entry": {
+      "main": [
+        [
+          {
+            "node": "Prepare Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "qi-research-pipeline",
+      "createdAt": "2026-01-27T00:00:00.000Z",
+      "updatedAt": "2026-01-27T00:00:00.000Z"
+    },
+    {
+      "name": "stage-2-research",
+      "createdAt": "2026-01-27T00:00:00.000Z",
+      "updatedAt": "2026-01-27T00:00:00.000Z"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2026-01-27T00:00:00.000Z",
+  "versionId": "1"
+}

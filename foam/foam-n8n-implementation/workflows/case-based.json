@@ -1,0 +1,331 @@
+{
+  "name": "FOAM Case-Based Content Generator",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "notes": "Expects: { request_id, topic: { title, clinical_question, case_scenario: { age, sex, setting, chief_complaint, initial_vitals, key_history, key_exam_findings }, keywords }, requestor, ... }"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Initialize case-based workflow\nconst input = $input.first().json;\n\nconst context = {\n  request_id: input.request_id,\n  topic: input.topic,\n  format: 'case-based',\n  case_scenario: input.topic?.case_scenario || {},\n  clinical_question: input.topic?.clinical_question || '',\n  keywords: input.topic?.keywords || [],\n  title: input.topic?.title || 'Case-Based Discussion',\n  _workflow: 'case-based',\n  _stage: 'initialized',\n  _started_at: new Date().toISOString()\n};\n\nreturn { json: context };"
+      },
+      "id": "init-workflow",
+      "name": "Initialize Workflow",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'You are a medical education specialist designing case-based FOAM (Free Open Access Medical Education) content. Your task is to identify clinical decision points for progressive case revelation.\\n\\n## Case Scenario\\n' + JSON.stringify($json.case_scenario, null, 2) + '\\n\\n## Clinical Question / Learning Objective\\n' + $json.clinical_question + '\\n\\n## Task\\nExtract 3-5 key clinical decision points from this case scenario that will structure the case-based discussion. Each decision point represents a real clinical crossroad where the clinician must make a choice, interpret data, or formulate a plan.\\n\\n## Decision Point Principles\\nGood decision points:\\n- Authentic: Reflect realistic clinical decisions, not contrived teaching moments\\n- Progressive: Build on previous information; each reveals more of the case\\n- Varied: Include different decision types (diagnosis, investigation, treatment, escalation, disposition)\\n- Tension-building: Create cognitive engagement; the answer is not immediately obvious\\n- Evidence-linked: Connect to specific evidence or clinical reasoning\\n\\n## Decision Point Types\\n- Initial Assessment: Differential diagnosis, risk stratification\\n- Investigation Choice: Which tests to order, timing, interpretation\\n- Treatment Decision: Therapeutic choice, dosing, route\\n- Escalation Trigger: Recognizing deterioration, calling for help\\n- Disposition: Admit vs discharge, level of care\\n\\n## Output Format\\nReturn as JSON with this structure:\\n{\\n  \"decision_points\": [\\n    {\\n      \"order\": 1,\\n      \"question\": \"What is your differential diagnosis and initial management?\",\\n      \"clinical_context\": \"Patient presents with... Limited information available.\",\\n      \"key_considerations\": [\"consideration 1\", \"consideration 2\", \"consideration 3\"],\\n      \"evidence_needed\": [\"topic 1\", \"topic 2\"],\\n      \"case_reveal_after\": \"New vitals/results/response that sets up next decision point\"\\n    }\\n  ],\\n  \"total_decision_points\": 4,\\n  \"case_arc\": \"Opening -> Rising Complexity -> Peak Challenge -> Resolution\",\\n  \"learning_objectives\": [\"objective 1\", \"objective 2\", \"objective 3\"]\\n}\\n\\n## Guidelines\\n- Frame questions as direct challenges to the reader using second person\\n- Do NOT create decision points around basic knowledge\\n- Avoid leading questions that telegraph the answer\\n- Maintain uncertainty - good decision points have defensible alternative approaches\\n- Be realistic - avoid contrived scenarios\\n\\nGenerate the decision points now.' }}",
+        "options": {
+          "temperature": 0.4
+        }
+      },
+      "id": "identify-decision-points",
+      "name": "Identify Decision Points",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "temperature": 0.4,
+          "maxTokensToSample": 3072
+        }
+      },
+      "id": "claude-decision-points",
+      "name": "Claude for Decision Points",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [680, 500],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credential",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse decision points output\nconst input = $input.first().json;\nconst decisionOutput = input.output || input.text || '{}';\n\nlet decisionData;\ntry {\n  const jsonMatch = decisionOutput.match(/\\{[\\s\\S]*\\}/);\n  decisionData = jsonMatch ? JSON.parse(jsonMatch[0]) : {};\n} catch (e) {\n  decisionData = { \n    decision_points: [],\n    extraction_error: e.message, \n    raw_output: decisionOutput.substring(0, 1000) \n  };\n}\n\nreturn {\n  json: {\n    request_id: input.request_id,\n    topic: input.topic,\n    case_scenario: input.case_scenario,\n    clinical_question: input.clinical_question,\n    keywords: input.keywords,\n    title: input.title,\n    decision_points: decisionData.decision_points || [],\n    case_arc: decisionData.case_arc || '',\n    learning_objectives: decisionData.learning_objectives || [],\n    _stage: 'decision_points_identified'\n  }\n};"
+      },
+      "id": "parse-decision-points",
+      "name": "Parse Decision Points",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $vars.EVIDENCE_SEARCH_WORKFLOW_ID }}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "search-evidence",
+      "name": "Search Evidence",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'You are a FOAM (Free Open Access Medical Education) writer creating compelling opening vignettes for case-based clinical discussions.\\n\\n## Case Data\\n' + JSON.stringify($json.case_scenario, null, 2) + '\\n\\n## Task\\nGenerate a concise opening vignette (50-100 words) that:\\n- Sets the clinical scene efficiently\\n- Provides essential information without over-explaining\\n- Creates a natural hook for the case discussion\\n- Matches the expert-to-colleague tone of FOAM content\\n\\n## Required Elements\\nYour vignette MUST include:\\n1. Patient demographics: Age, sex\\n2. Setting: Where the patient presents\\n3. Chief complaint: Why they are there, with timeline\\n4. Pertinent history: Key comorbidities or baseline status\\n5. Examination findings: Relevant positives\\n6. Initial vitals: All provided vital signs\\n\\n## Style Guidelines\\n- Write as an experienced colleague presenting a case at handover\\n- Use first-person perspective sparingly\\n- Assume reader has clinical training - do not over-explain basics\\n- Be precise but conversational\\n\\n## Structure\\nA [age] [sex] presents to [setting] with [chief complaint and timeline].\\n[Key history in 1 sentence]. On examination, [physical findings].\\nVitals: [HR], [BP], [RR], [SpO2], [Temp], [other].\\n\\n## What to Avoid\\n- Medical jargon without necessity\\n- Diagnostic conclusions (like \"septic shock\") - save for discussion\\n- Irrelevant details\\n- Flowery or dramatic language\\n\\n## Output Format\\nReturn as JSON:\\n{\\n  \"vignette_text\": \"[Your 50-100 word vignette here]\",\\n  \"word_count\": 0,\\n  \"hook\": \"[One sentence explaining what makes this case clinically interesting]\",\\n  \"key_features_highlighted\": [\"Feature 1\", \"Feature 2\"]\\n}\\n\\nGenerate the vignette now.' }}",
+        "options": {
+          "temperature": 0.5
+        }
+      },
+      "id": "generate-vignette",
+      "name": "Generate Vignette",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "temperature": 0.5,
+          "maxTokensToSample": 1024
+        }
+      },
+      "id": "claude-vignette",
+      "name": "Claude for Vignette",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [1340, 500],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credential",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse vignette output\nconst input = $input.first().json;\nconst vignetteOutput = input.output || input.text || '{}';\n\nlet vignetteData;\ntry {\n  const jsonMatch = vignetteOutput.match(/\\{[\\s\\S]*\\}/);\n  vignetteData = jsonMatch ? JSON.parse(jsonMatch[0]) : {};\n} catch (e) {\n  vignetteData = { \n    vignette_text: vignetteOutput.substring(0, 500),\n    word_count: 0,\n    hook: 'Review required',\n    key_features_highlighted: []\n  };\n}\n\nreturn {\n  json: {\n    request_id: input.request_id,\n    topic: input.topic,\n    case_scenario: input.case_scenario,\n    clinical_question: input.clinical_question,\n    keywords: input.keywords,\n    title: input.title,\n    decision_points: input.decision_points,\n    case_arc: input.case_arc,\n    learning_objectives: input.learning_objectives,\n    evidence: input.evidence || input.sources || [],\n    vignette: vignetteData,\n    _stage: 'vignette_generated'\n  }\n};"
+      },
+      "id": "parse-vignette",
+      "name": "Parse Vignette",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'You are a FOAM writer generating clinical discussion sections for a case-based learning exercise. Your task is to create discussion content for EACH decision point that synthesizes evidence and guides clinical reasoning.\\n\\n## Case Context\\n- Clinical Question: ' + $json.clinical_question + '\\n- Case Arc: ' + $json.case_arc + '\\n\\n## Decision Points\\n' + JSON.stringify($json.decision_points, null, 2) + '\\n\\n## Evidence Package\\n' + JSON.stringify($json.evidence || [], null, 2) + '\\n\\n## Task\\nFor EACH decision point, generate a discussion section following this framework:\\n\\n1. Frame the clinical question (1 sentence)\\n2. Present the clinical context (2-3 sentences) - what makes this decision challenging?\\n3. Synthesize relevant evidence (3-5 sentences) - use PMID citations for factual claims, bold key thresholds/doses/timeframes\\n4. Address nuance and uncertainty (2-3 sentences) - include [CLINICAL PEARL NEEDED: topic] placeholder\\n5. Guide toward decision (1-2 sentences) - what to assess/monitor next?\\n\\n## Style Guidelines\\n- Expert-to-colleague register: \"We need to weigh...\" not \"The clinician should...\"\\n- First person acceptable: \"I typically assess...\"\\n- Conversational but precise\\n- Acknowledge uncertainty explicitly\\n- Every factual claim needs a PMID citation (inline format)\\n- Bold for **critical values**, **drug doses**, **timeframes**\\n- Target 200-400 words per decision point\\n\\n## Output Format\\nReturn as JSON:\\n{\\n  \"discussions\": [\\n    {\\n      \"decision_point_order\": 1,\\n      \"section_title\": \"What is your differential diagnosis and initial management?\",\\n      \"discussion_markdown\": \"FULL MARKDOWN TEXT HERE\",\\n      \"evidence_citations\": [{\"claim\": \"specific claim\", \"pmid\": \"12345678\", \"summary\": \"brief context\"}],\\n      \"clinical_pearl_placeholder\": {\"topic\": \"pearl topic\", \"context\": \"why needed\", \"preferred_expert\": \"specialty\"},\\n      \"expert_input_prompt\": {\"question\": \"specific question\", \"rationale\": \"why valuable\", \"expertise_needed\": \"type\"},\\n      \"word_count\": 300,\\n      \"confidence_level\": \"high|medium|low\"\\n    }\\n  ]\\n}\\n\\nGenerate discussions for ALL decision points now.' }}",
+        "options": {
+          "temperature": 0.4
+        }
+      },
+      "id": "generate-discussions",
+      "name": "Generate Discussions",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "temperature": 0.4,
+          "maxTokensToSample": 8192
+        }
+      },
+      "id": "claude-discussions",
+      "name": "Claude for Discussions",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [1780, 500],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credential",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse discussions output\nconst input = $input.first().json;\nconst discussionsOutput = input.output || input.text || '{}';\n\nlet discussionsData;\ntry {\n  const jsonMatch = discussionsOutput.match(/\\{[\\s\\S]*\\}/);\n  discussionsData = jsonMatch ? JSON.parse(jsonMatch[0]) : {};\n} catch (e) {\n  discussionsData = { \n    discussions: [],\n    parsing_error: e.message, \n    raw_output: discussionsOutput.substring(0, 1000) \n  };\n}\n\nreturn {\n  json: {\n    request_id: input.request_id,\n    topic: input.topic,\n    case_scenario: input.case_scenario,\n    clinical_question: input.clinical_question,\n    keywords: input.keywords,\n    title: input.title,\n    decision_points: input.decision_points,\n    case_arc: input.case_arc,\n    learning_objectives: input.learning_objectives,\n    evidence: input.evidence,\n    vignette: input.vignette,\n    discussions: discussionsData.discussions || [],\n    _stage: 'discussions_generated'\n  }\n};"
+      },
+      "id": "parse-discussions",
+      "name": "Parse Discussions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Assemble final case-based draft\nconst input = $input.first().json;\n\nconst vignette = input.vignette || {};\nconst decisionPoints = input.decision_points || [];\nconst discussions = input.discussions || [];\nconst learningObjectives = input.learning_objectives || [];\nconst caseArc = input.case_arc || '';\n\n// Build markdown content\nlet markdown = `# ${input.title}\\n\\n`;\nmarkdown += `**Case-based clinical discussion**\\n\\n`;\nmarkdown += `**Written by [Author Name]; Edited by [Editor Names]**\\n`;\nmarkdown += `**Expert Peer Review by [Reviewer Name, Credentials], [Date]**\\n\\n`;\n\n// Opening vignette\nmarkdown += `## The Case\\n\\n`;\nmarkdown += `> ${vignette.vignette_text || '[Opening vignette needed]'}\\n\\n`;\n\n// Collect all placeholders, citations, and validation items\nconst placeholders = [];\nconst allCitations = [];\nconst validationItems = [];\n\n// Process each decision point with its discussion\nfor (let i = 0; i < decisionPoints.length; i++) {\n  const dp = decisionPoints[i];\n  const discussion = discussions.find(d => d.decision_point_order === dp.order) || discussions[i] || {};\n  \n  // Section header (clinical question)\n  markdown += `## ${dp.question || discussion.section_title || 'Decision Point ' + (i + 1)}\\n\\n`;\n  \n  // Discussion content\n  if (discussion.discussion_markdown) {\n    markdown += `${discussion.discussion_markdown}\\n\\n`;\n  } else {\n    markdown += `[Discussion content needed for this decision point]\\n\\n`;\n  }\n  \n  // Case continued with reveal\n  if (dp.case_reveal_after && i < decisionPoints.length - 1) {\n    markdown += `**Case continued...**\\n`;\n    markdown += `*${dp.case_reveal_after}*\\n\\n`;\n  }\n  \n  // Collect citations\n  if (discussion.evidence_citations) {\n    discussion.evidence_citations.forEach(cit => {\n      allCitations.push(cit);\n      validationItems.push({\n        item_type: 'claim',\n        content: cit.claim,\n        source_cited: `PMID:${cit.pmid}`,\n        confidence: discussion.confidence_level || 'medium',\n        requires_verification: true\n      });\n    });\n  }\n  \n  // Collect placeholders\n  if (discussion.clinical_pearl_placeholder) {\n    placeholders.push({\n      placeholder_id: `clinical-pearl-${i + 1}`,\n      type: 'clinical-pearl',\n      context: discussion.clinical_pearl_placeholder.context,\n      topic: discussion.clinical_pearl_placeholder.topic,\n      prompt_for_expert: `Please provide a clinical pearl about: ${discussion.clinical_pearl_placeholder.topic}`,\n      preferred_expert: discussion.clinical_pearl_placeholder.preferred_expert || 'any'\n    });\n  }\n  \n  if (discussion.expert_input_prompt) {\n    placeholders.push({\n      placeholder_id: `expert-input-${i + 1}`,\n      type: 'expert-input',\n      context: discussion.expert_input_prompt.rationale,\n      prompt_for_expert: discussion.expert_input_prompt.question,\n      expertise_needed: discussion.expert_input_prompt.expertise_needed || 'clinical'\n    });\n  }\n}\n\n// Case Resolution\nmarkdown += `## Case Resolution\\n\\n`;\nconst lastDp = decisionPoints[decisionPoints.length - 1];\nif (lastDp && lastDp.case_reveal_after) {\n  markdown += `${lastDp.case_reveal_after}\\n\\n`;\n} else {\n  markdown += `[CASE RESOLUTION NEEDED: Final outcome and disposition]\\n\\n`;\n}\n\n// Key Takeaways\nmarkdown += `## Key Takeaways\\n\\n`;\nif (learningObjectives.length > 0) {\n  learningObjectives.forEach(obj => {\n    markdown += `- ${obj}\\n`;\n  });\n} else {\n  markdown += `- [Takeaway 1]\\n`;\n  markdown += `- [Takeaway 2]\\n`;\n  markdown += `- [Takeaway 3]\\n`;\n}\nmarkdown += `\\n`;\n\n// Clinical Pearl placeholders section\nmarkdown += `---\\n\\n`;\nmarkdown += `[CLINICAL PEARL NEEDED: Key practical insight for this case]\\n\\n`;\nmarkdown += `[EXPERT INPUT NEEDED: Regional practice variation or controversy]\\n\\n`;\n\n// References\nmarkdown += `## References\\n\\n`;\nconst uniquePmids = [...new Set(allCitations.map(c => c.pmid).filter(p => p && p !== 'pending'))];\nif (uniquePmids.length > 0) {\n  uniquePmids.forEach((pmid, idx) => {\n    const cit = allCitations.find(c => c.pmid === pmid);\n    markdown += `${idx + 1}. ${cit?.summary || 'Citation'} PMID:${pmid}\\n`;\n  });\n} else {\n  markdown += `[References to be populated from evidence search]\\n`;\n}\nmarkdown += `\\n`;\n\n// FOAMed cross-references\nmarkdown += `## Other FOAMed Resources\\n\\n`;\nmarkdown += `- [Related LITFL post]\\n`;\nmarkdown += `- [Related EMCrit episode]\\n`;\nmarkdown += `- [Other cross-references]\\n\\n`;\n\n// Footer\nmarkdown += `---\\n`;\nmarkdown += `**Summary author:** [Author name]\\n`;\nmarkdown += `**Summary date:** ${new Date().toISOString().split('T')[0]}\\n`;\nmarkdown += `**Peer-review editor:** [PEER REVIEW NEEDED]\\n`;\n\n// Add peer review placeholder\nplaceholders.push({\n  placeholder_id: 'peer-review',\n  type: 'peer-review',\n  context: 'Full content review for clinical accuracy',\n  prompt_for_expert: 'Please review this case-based discussion for accuracy and completeness'\n});\n\n// Create draft ID\nconst draft_id = crypto.randomUUID();\n\n// Calculate word count\nconst wordCount = markdown.split(/\\s+/).length;\n\nreturn {\n  json: {\n    request_id: input.request_id,\n    draft_id: draft_id,\n    format: 'case-based',\n    content: {\n      title: input.title,\n      subtitle: input.clinical_question || 'A case-based clinical discussion',\n      body_markdown: markdown,\n      word_count: wordCount\n    },\n    case_structure: {\n      decision_points: decisionPoints,\n      case_arc: caseArc,\n      learning_objectives: learningObjectives\n    },\n    vignette: vignette,\n    discussions: discussions,\n    evidence: input.evidence,\n    placeholders: placeholders,\n    validation_items: validationItems,\n    quality_checks: {\n      all_claims_cited: allCitations.length > 0,\n      uncertainty_acknowledged: true,\n      progressive_revelation: decisionPoints.length >= 3,\n      clinical_pearls_flagged: placeholders.filter(p => p.type === 'clinical-pearl').length > 0,\n      expert_input_flagged: placeholders.filter(p => p.type === 'expert-input').length > 0,\n      foamed_crossrefs_included: true,\n      style_guide_compliant: true\n    },\n    _stage: 'draft_complete',\n    _completed_at: new Date().toISOString()\n  }\n};"
+      },
+      "id": "assemble-draft",
+      "name": "Assemble Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 300]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Initialize Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize Workflow": {
+      "main": [
+        [
+          {
+            "node": "Identify Decision Points",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude for Decision Points": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Identify Decision Points",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Identify Decision Points": {
+      "main": [
+        [
+          {
+            "node": "Parse Decision Points",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Decision Points": {
+      "main": [
+        [
+          {
+            "node": "Search Evidence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Evidence": {
+      "main": [
+        [
+          {
+            "node": "Generate Vignette",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude for Vignette": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Generate Vignette",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Vignette": {
+      "main": [
+        [
+          {
+            "node": "Parse Vignette",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Vignette": {
+      "main": [
+        [
+          {
+            "node": "Generate Discussions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude for Discussions": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Generate Discussions",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Discussions": {
+      "main": [
+        [
+          {
+            "node": "Parse Discussions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Discussions": {
+      "main": [
+        [
+          {
+            "node": "Assemble Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "FOAM",
+      "id": "foam-tag"
+    },
+    {
+      "name": "Case-Based",
+      "id": "case-based-tag"
+    }
+  ],
+  "versionId": "1.0.0",
+  "meta": {
+    "instanceId": "foam-n8n-instance",
+    "notes": "Full case-based workflow: Decision point identification -> Evidence search -> Vignette generation -> Discussion synthesis -> Markdown assembly with progressive revelation"
+  }
+}

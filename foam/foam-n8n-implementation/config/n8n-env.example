@@ -1,0 +1,156 @@
+# =============================================================================
+# FOAM N8N Workflow Environment Configuration
+# =============================================================================
+# Copy this file to .env and fill in your values
+# DO NOT commit .env to version control
+
+# =============================================================================
+# N8N CONFIGURATION
+# =============================================================================
+
+# Basic Auth (change these!)
+N8N_USER=admin
+N8N_PASSWORD=change_me_to_secure_password
+
+# Host configuration
+N8N_HOST=localhost
+N8N_PORT=5678
+N8N_PROTOCOL=https
+
+# Timezone (important for Australian context)
+GENERIC_TIMEZONE=Australia/Brisbane
+
+# Webhook URL (for external triggers)
+WEBHOOK_URL=https://your-domain.com/
+
+# Execution settings
+EXECUTIONS_DATA_PRUNE=true
+EXECUTIONS_DATA_MAX_AGE=336
+
+# =============================================================================
+# DATABASE CONFIGURATION
+# =============================================================================
+
+# PostgreSQL
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+POSTGRES_USER=n8n
+POSTGRES_PASSWORD=change_me_to_secure_password
+POSTGRES_DB=n8n
+
+# Connection string (constructed from above)
+# DB_POSTGRESDB_HOST=${POSTGRES_HOST}
+# DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
+# DB_POSTGRESDB_USER=${POSTGRES_USER}
+# DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+
+# =============================================================================
+# LLM API KEYS
+# =============================================================================
+
+# Anthropic (Claude)
+ANTHROPIC_API_KEY=sk-ant-api03-your-key-here
+
+# OpenAI (GPT-4)
+OPENAI_API_KEY=sk-your-key-here
+
+# SerpAPI (for web search with GPT)
+SERP_API_KEY=your-serp-api-key-here
+
+# =============================================================================
+# OLLAMA CONFIGURATION
+# =============================================================================
+
+# Ollama base URL (for Docker deployment)
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+
+# For non-Docker deployment
+# OLLAMA_BASE_URL=http://localhost:11434
+
+# Default models
+OLLAMA_DEFAULT_MODEL=llama3.2:latest
+OLLAMA_FALLBACK_MODEL=mistral:latest
+
+# =============================================================================
+# NOTIFICATION CONFIGURATION
+# =============================================================================
+
+# Slack (for notifications)
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/your/webhook/url
+SLACK_CHANNEL=#foam-content
+
+# Email (for review notifications)
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=notifications@example.com
+SMTP_PASSWORD=your_smtp_password
+SMTP_FROM_ADDRESS=foam-workflow@example.com
+SMTP_FROM_NAME=FOAM Content System
+
+# =============================================================================
+# EXTERNAL SERVICES
+# =============================================================================
+
+# PubMed E-utilities
+# Note: Using NCBI API key increases rate limits
+NCBI_API_KEY=your_ncbi_api_key_here
+
+# =============================================================================
+# WORKFLOW CONFIGURATION
+# =============================================================================
+
+# Retry settings
+DEFAULT_RETRY_COUNT=3
+DEFAULT_RETRY_WAIT_MS=15000
+
+# Token limits
+CLAUDE_MAX_TOKENS=8192
+GPT_MAX_TOKENS=4096
+OLLAMA_MAX_TOKENS=4096
+
+# Temperature settings
+DRAFTING_TEMPERATURE=0.3
+RESEARCH_TEMPERATURE=0.2
+
+# =============================================================================
+# LOGGING CONFIGURATION
+# =============================================================================
+
+# Log level: DEBUG, INFO, WARN, ERROR
+LOG_LEVEL=INFO
+
+# Log file location
+LOG_FILE_PATH=/var/log/foam-workflow/workflow.log
+
+# Enable database logging
+LOG_TO_DATABASE=true
+
+# =============================================================================
+# SECURITY
+# =============================================================================
+
+# API authentication header name
+API_AUTH_HEADER=X-FOAM-API-Key
+
+# API key for webhook authentication
+FOAM_API_KEY=generate_a_secure_random_key_here
+
+# =============================================================================
+# FEATURE FLAGS
+# =============================================================================
+
+# Enable/disable specific features
+ENABLE_WEB_SEARCH=true
+ENABLE_PUBMED_SEARCH=true
+ENABLE_FOAMED_SCRAPING=true
+ENABLE_COST_TRACKING=true
+
+# =============================================================================
+# DEVELOPMENT SETTINGS
+# =============================================================================
+
+# Development mode (enables additional logging)
+DEV_MODE=false
+
+# Skip external API calls (use cached/mock data)
+USE_MOCK_DATA=false

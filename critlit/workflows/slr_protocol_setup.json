@@ -1,0 +1,208 @@
+{
+  "name": "SLR Protocol Setup",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "slr-protocol-setup",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger-protocol",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "webhookId": "slr-protocol-setup-webhook"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "extract-review-id",
+              "name": "review_id",
+              "value": "={{ $json.body.review_id }}",
+              "type": "string"
+            },
+            {
+              "id": "extract-title",
+              "name": "title",
+              "value": "={{ $json.body.title }}",
+              "type": "string"
+            },
+            {
+              "id": "extract-pico",
+              "name": "pico",
+              "value": "={{ $json.body.pico }}",
+              "type": "object"
+            },
+            {
+              "id": "extract-inclusion-criteria",
+              "name": "inclusion_criteria",
+              "value": "={{ $json.body.inclusion_criteria }}",
+              "type": "object"
+            },
+            {
+              "id": "extract-exclusion-criteria",
+              "name": "exclusion_criteria",
+              "value": "={{ $json.body.exclusion_criteria }}",
+              "type": "object"
+            },
+            {
+              "id": "extract-search-strategy",
+              "name": "search_strategy",
+              "value": "={{ $json.body.search_strategy }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "extract-protocol-data",
+      "name": "Extract Protocol Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO reviews (id, title, status, pico, inclusion_criteria, exclusion_criteria, search_strategy, protocol_version, created_at, updated_at)\nVALUES (\n  $1::uuid,\n  $2::text,\n  'protocol',\n  $3::jsonb,\n  $4::jsonb,\n  $5::jsonb,\n  $6::text,\n  1,\n  NOW(),\n  NOW()\n)\nON CONFLICT (id)\nDO UPDATE SET\n  title = EXCLUDED.title,\n  pico = EXCLUDED.pico,\n  inclusion_criteria = EXCLUDED.inclusion_criteria,\n  exclusion_criteria = EXCLUDED.exclusion_criteria,\n  search_strategy = EXCLUDED.search_strategy,\n  protocol_version = reviews.protocol_version + 1,\n  updated_at = NOW()\nRETURNING *;",
+        "options": {}
+      },
+      "id": "save-protocol-to-db",
+      "name": "Save Protocol to Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [650, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-slr-database",
+          "name": "SLR PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO audit_log (review_id, event_type, event_data, created_at)\nVALUES (\n  $1::uuid,\n  'protocol_created',\n  $2::jsonb,\n  NOW()\n)\nRETURNING *;",
+        "options": {}
+      },
+      "id": "log-protocol-creation",
+      "name": "Log Protocol Creation",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [850, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-slr-database",
+          "name": "SLR PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "prepare-audit-review-id",
+              "name": "review_id",
+              "value": "={{ $('Save Protocol to Database').item.json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "prepare-audit-event-data",
+              "name": "event_data",
+              "value": "={{ { \"protocol_version\": $('Save Protocol to Database').item.json.protocol_version, \"title\": $('Save Protocol to Database').item.json.title } }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "prepare-audit-log",
+      "name": "Prepare Audit Log",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [750, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "respond-protocol-created",
+      "name": "Respond Protocol Created",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1050, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Protocol Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Protocol Data": {
+      "main": [
+        [
+          {
+            "node": "Save Protocol to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Protocol to Database": {
+      "main": [
+        [
+          {
+            "node": "Prepare Audit Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Audit Log": {
+      "main": [
+        [
+          {
+            "node": "Log Protocol Creation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Protocol Creation": {
+      "main": [
+        [
+          {
+            "node": "Respond Protocol Created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-01-24T14:17:58.607Z",
+  "versionId": "1"
+}

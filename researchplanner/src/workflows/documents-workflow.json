@@ -1,0 +1,698 @@
+{
+  "name": "Stage 5 - Document Generation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "documents/generate",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract project data from webhook\nconst projectId = $input.first().json.body.project_id;\nconst project = $input.first().json.body.project;\nconst methodology = $input.first().json.body.methodology;\nconst ethics = $input.first().json.body.ethics;\nconst research = $input.first().json.body.research;\n\nif (!projectId || !project || !methodology || !ethics) {\n  throw new Error('Missing required input data');\n}\n\nreturn [{\n  json: {\n    project_id: projectId,\n    project,\n    methodology,\n    ethics,\n    research: research || { synthesis: '', gaps: [], citations: [] },\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "extract-input",
+      "name": "Extract Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Determine required documents based on project type and ethics pathway\nconst { project, ethics, methodology } = $input.first().json;\n\nconst projectType = project.classification?.project_type || 'RESEARCH';\nconst ethicsPathway = ethics.ethics_pathway?.pathway || 'LOW_RISK_RESEARCH';\n\n// Document requirements by package type\nconst packageConfigs = {\n  QI_MINIMAL: {\n    required: [],\n    optional: ['PROTOCOL', 'DATA_MANAGEMENT_PLAN']\n  },\n  LOW_RISK_STANDARD: {\n    required: ['PROTOCOL', 'PICF', 'DATA_MANAGEMENT_PLAN'],\n    optional: ['COVER_LETTER']\n  },\n  FULL_HREC_COMPLETE: {\n    required: ['PROTOCOL', 'PICF', 'DATA_MANAGEMENT_PLAN', 'COVER_LETTER'],\n    optional: ['EMF_GRANT_APPLICATION']\n  },\n  HYBRID: {\n    required: ['PROTOCOL', 'PICF', 'DATA_MANAGEMENT_PLAN', 'COVER_LETTER'],\n    optional: []\n  }\n};\n\n// Determine package type\nlet packageType = 'LOW_RISK_STANDARD';\nif (projectType === 'QI') {\n  packageType = 'QI_MINIMAL';\n} else if (ethicsPathway === 'FULL_HREC_REVIEW') {\n  packageType = 'FULL_HREC_COMPLETE';\n} else if (ethicsPathway === 'HYBRID_REVIEW') {\n  packageType = 'HYBRID';\n}\n\nconst config = packageConfigs[packageType];\n\n// Adjust for consent waiver\nlet documentsToGenerate = [...config.required];\nif (ethics.consent_requirements?.waiver_justified) {\n  documentsToGenerate = documentsToGenerate.filter(d => d !== 'PICF');\n}\n\nreturn [{\n  json: {\n    ...$input.first().json,\n    package_type: packageType,\n    documents_to_generate: documentsToGenerate,\n    optional_documents: config.optional\n  }\n}];"
+      },
+      "id": "determine-documents",
+      "name": "Determine Required Documents",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "split-documents",
+      "name": "Split Documents",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.current_document }}",
+              "operation": "equals",
+              "value2": "PROTOCOL"
+            }
+          ]
+        }
+      },
+      "id": "route-protocol",
+      "name": "Route Protocol",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1050, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.current_document }}",
+              "operation": "equals",
+              "value2": "PICF"
+            }
+          ]
+        }
+      },
+      "id": "route-picf",
+      "name": "Route PICF",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1050, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.current_document }}",
+              "operation": "equals",
+              "value2": "DATA_MANAGEMENT_PLAN"
+            }
+          ]
+        }
+      },
+      "id": "route-dmp",
+      "name": "Route DMP",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1050, 600]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DOCUMENT_SERVICE_URL }}/generate/protocol",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "project",
+              "value": "={{ JSON.stringify($json.project) }}"
+            },
+            {
+              "name": "methodology",
+              "value": "={{ JSON.stringify($json.methodology) }}"
+            },
+            {
+              "name": "ethics",
+              "value": "={{ JSON.stringify($json.ethics) }}"
+            },
+            {
+              "name": "research",
+              "value": "={{ JSON.stringify($json.research) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "generate-protocol",
+      "name": "Generate Protocol",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 100]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DOCUMENT_SERVICE_URL }}/generate/picf",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "project",
+              "value": "={{ JSON.stringify($json.project) }}"
+            },
+            {
+              "name": "methodology",
+              "value": "={{ JSON.stringify($json.methodology) }}"
+            },
+            {
+              "name": "ethics",
+              "value": "={{ JSON.stringify($json.ethics) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "generate-picf",
+      "name": "Generate PICF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 350]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DOCUMENT_SERVICE_URL }}/generate/dmp",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "project",
+              "value": "={{ JSON.stringify($json.project) }}"
+            },
+            {
+              "name": "ethics",
+              "value": "={{ JSON.stringify($json.ethics) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "generate-dmp",
+      "name": "Generate DMP",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 550]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DOCUMENT_SERVICE_URL }}/generate/cover-letter",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "project",
+              "value": "={{ JSON.stringify($json.project) }}"
+            },
+            {
+              "name": "ethics",
+              "value": "={{ JSON.stringify($json.ethics) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "generate-cover-letter",
+      "name": "Generate Cover Letter",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 750]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "id": "merge-documents",
+      "name": "Merge Documents",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [1500, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Collect all generated documents\nconst items = $input.all();\nconst documents = [];\nconst errors = [];\n\nfor (const item of items) {\n  if (item.json.error) {\n    errors.push(item.json.error);\n  } else if (item.json.document) {\n    documents.push({\n      type: item.json.document_type,\n      filename: item.json.filename,\n      size_bytes: item.json.size_bytes,\n      generated_at: item.json.generated_at\n    });\n  }\n}\n\nconst project = items[0]?.json.project || {};\nconst packageType = items[0]?.json.package_type || 'UNKNOWN';\n\nreturn [{\n  json: {\n    project_id: project.id,\n    project_title: project.intake?.project_title,\n    package_type: packageType,\n    documents_generated: documents.length,\n    documents,\n    errors,\n    status: errors.length === 0 ? 'SUCCESS' : 'PARTIAL_SUCCESS',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "collect-results",
+      "name": "Collect Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1700, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DOCUMENT_SERVICE_URL }}/package/create",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "project_id",
+              "value": "={{ $json.project_id }}"
+            },
+            {
+              "name": "documents",
+              "value": "={{ JSON.stringify($json.documents) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "create-package",
+      "name": "Create Submission Package",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1900, 400]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "status",
+              "name": "status",
+              "value": "DOCUMENTS_COMPLETE",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-status",
+      "name": "Set Status",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [2100, 400]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": "public",
+        "table": "projects",
+        "columns": "status,documents,updated_at",
+        "additionalFields": {
+          "status": "={{ $json.status }}",
+          "documents": "={{ JSON.stringify($json) }}",
+          "updated_at": "={{ $now.toISO() }}"
+        },
+        "where": {
+          "values": [
+            {
+              "column": "id",
+              "value": "={{ $json.project_id }}"
+            }
+          ]
+        }
+      },
+      "id": "update-database",
+      "name": "Update Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [2300, 400],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "checkpoint_type",
+              "name": "checkpoint_type",
+              "value": "documents_approved",
+              "type": "string"
+            },
+            {
+              "id": "message",
+              "name": "message",
+              "value": "Document generation complete. Please review the generated documents and submission package before final approval.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "prepare-checkpoint",
+      "name": "Prepare Checkpoint",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [2500, 400]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "documents/checkpoint/{{ $json.project_id }}",
+        "responseMode": "lastNode"
+      },
+      "id": "human-checkpoint",
+      "name": "Human Checkpoint",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [2700, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.approved }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-approval",
+      "name": "Check Approval",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2900, 400]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": "public",
+        "table": "projects",
+        "columns": "status,checkpoints,updated_at",
+        "additionalFields": {
+          "status": "COMPLETE",
+          "checkpoints": "={{ JSON.stringify({ ...$json.checkpoints, documents_approved: true }) }}",
+          "updated_at": "={{ $now.toISO() }}"
+        },
+        "where": {
+          "values": [
+            {
+              "column": "id",
+              "value": "={{ $json.project_id }}"
+            }
+          ]
+        }
+      },
+      "id": "mark-complete",
+      "name": "Mark Complete",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [3100, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, project_id: $json.project_id, status: 'COMPLETE', documents: $json.documents, package_path: $json.package_path }) }}"
+      },
+      "id": "respond-success",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [3300, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, project_id: $json.project_id, status: 'DOCUMENTS_REJECTED', message: $json.rejection_reason }) }}"
+      },
+      "id": "respond-rejected",
+      "name": "Respond Rejected",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [3100, 500]
+    },
+    {
+      "parameters": {
+        "errorMessage": "={{ $json.error || 'Document generation failed' }}"
+      },
+      "id": "error-handler",
+      "name": "Error Handler",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [1900, 600]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Input": {
+      "main": [
+        [
+          {
+            "node": "Determine Required Documents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determine Required Documents": {
+      "main": [
+        [
+          {
+            "node": "Split Documents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Documents": {
+      "main": [
+        [
+          {
+            "node": "Route Protocol",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Route PICF",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Route DMP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Protocol": {
+      "main": [
+        [
+          {
+            "node": "Generate Protocol",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route PICF": {
+      "main": [
+        [
+          {
+            "node": "Generate PICF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route DMP": {
+      "main": [
+        [
+          {
+            "node": "Generate DMP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Protocol": {
+      "main": [
+        [
+          {
+            "node": "Merge Documents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate PICF": {
+      "main": [
+        [
+          {
+            "node": "Merge Documents",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Generate DMP": {
+      "main": [
+        [
+          {
+            "node": "Merge Documents",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Generate Cover Letter": {
+      "main": [
+        [
+          {
+            "node": "Merge Documents",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Merge Documents": {
+      "main": [
+        [
+          {
+            "node": "Collect Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Results": {
+      "main": [
+        [
+          {
+            "node": "Create Submission Package",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Submission Package": {
+      "main": [
+        [
+          {
+            "node": "Set Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Handler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Status": {
+      "main": [
+        [
+          {
+            "node": "Update Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Database": {
+      "main": [
+        [
+          {
+            "node": "Prepare Checkpoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Checkpoint": {
+      "main": [
+        [
+          {
+            "node": "Human Checkpoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Human Checkpoint": {
+      "main": [
+        [
+          {
+            "node": "Check Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Approval": {
+      "main": [
+        [
+          {
+            "node": "Mark Complete",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Complete": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "research-pipeline"
+    },
+    {
+      "name": "stage-5"
+    },
+    {
+      "name": "documents"
+    }
+  ]
+}

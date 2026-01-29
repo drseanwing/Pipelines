@@ -1,0 +1,457 @@
+{
+  "name": "SLR_Screen_Single",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "screen-single",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "execute-workflow-trigger-node",
+      "name": "Execute_Workflow_Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "slr-screen-single-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, review_id, title, abstract, authors, publication_year, journal, doi, keywords, mesh_terms\nFROM documents\nWHERE id = $1",
+        "options": {
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "document_id",
+                "value": "={{ $json.document_id }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "load-document-node",
+      "name": "Load_Document",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_slr",
+          "name": "PostgreSQL SLR"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "document-exists-condition",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-document-exists-node",
+      "name": "Check_Document_Exists",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, title, pico, inclusion_criteria, exclusion_criteria\nFROM reviews\nWHERE id = $1",
+        "options": {
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "review_id",
+                "value": "={{ $json.review_id }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "load-review-pico-node",
+      "name": "Load_Review_PICO",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [850, 200],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_slr",
+          "name": "PostgreSQL SLR"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const reviewConfig = $input.first().json;\nconst document = $input.last().json;\n\nconst prompt = `You are an AI assistant performing title/abstract screening for a systematic literature review.\n\nReview Title: ${reviewConfig.title}\n\nPICO Framework:\n${JSON.stringify(reviewConfig.pico, null, 2)}\n\nInclusion Criteria:\n${reviewConfig.inclusion_criteria}\n\nExclusion Criteria:\n${reviewConfig.exclusion_criteria}\n\nDocument to Screen:\nTitle: ${document.title}\nAbstract: ${document.abstract || '(No abstract available)'}\nAuthors: ${document.authors || 'N/A'}\nJournal: ${document.journal || 'N/A'}\nYear: ${document.publication_year || 'N/A'}\nDOI: ${document.doi || 'N/A'}\nKeywords: ${document.keywords || 'N/A'}\nMeSH Terms: ${document.mesh_terms || 'N/A'}\n\nBased on the title and abstract, determine if this document should be:\n- INCLUDE: Meets inclusion criteria, proceed to full-text screening\n- EXCLUDE: Does not meet criteria\n- UNCERTAIN: Unclear, needs human review\n\nProvide your response in JSON format:\n{\n  \"decision\": \"INCLUDE|EXCLUDE|UNCERTAIN\",\n  \"reasoning\": \"Brief explanation of your decision\",\n  \"confidence\": 0.0-1.0,\n  \"relevant_criteria\": [\"criterion1\", \"criterion2\"],\n  \"pico_alignment\": {\n    \"population\": \"match|mismatch|unclear\",\n    \"intervention\": \"match|mismatch|unclear\",\n    \"comparison\": \"match|mismatch|unclear\",\n    \"outcome\": \"match|mismatch|unclear\"\n  }\n}`;\n\nreturn {\n  prompt,\n  document_id: document.id,\n  review_id: document.review_id\n};"
+      },
+      "id": "build-prompt-node",
+      "name": "Build_Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 200]
+    },
+    {
+      "parameters": {
+        "model": "llama3.1:latest",
+        "options": {
+          "temperature": 0.1,
+          "maxTokens": 1500,
+          "topP": 0.95
+        },
+        "prompt": "={{ $json.prompt }}"
+      },
+      "id": "ollama-screen-node",
+      "name": "Ollama_Screen",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [1250, 200]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const aiResponse = $input.item.json.response || $input.item.json.text || JSON.stringify($input.item.json);\nconst document_id = $input.item.json.document_id;\nconst review_id = $input.item.json.review_id;\n\nlet parsed;\ntry {\n  // Extract JSON from response\n  const jsonMatch = aiResponse.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    parsed = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found in response');\n  }\n} catch (error) {\n  // Fallback: simple heuristic parsing\n  const decision = aiResponse.toLowerCase().includes('include') && !aiResponse.toLowerCase().includes('exclude') ? 'INCLUDE' :\n                   aiResponse.toLowerCase().includes('exclude') ? 'EXCLUDE' : 'UNCERTAIN';\n  parsed = {\n    decision,\n    reasoning: aiResponse.substring(0, 500),\n    confidence: 0.5,\n    relevant_criteria: [],\n    pico_alignment: {}\n  };\n}\n\n// Ensure valid decision\nif (!['INCLUDE', 'EXCLUDE', 'UNCERTAIN'].includes(parsed.decision)) {\n  parsed.decision = 'UNCERTAIN';\n}\n\n// Ensure confidence is in valid range\nif (typeof parsed.confidence !== 'number' || parsed.confidence < 0 || parsed.confidence > 1) {\n  parsed.confidence = 0.5;\n}\n\nreturn {\n  document_id,\n  review_id,\n  decision: parsed.decision,\n  reasoning: parsed.reasoning || 'No reasoning provided',\n  confidence: parsed.confidence,\n  relevant_criteria: JSON.stringify(parsed.relevant_criteria || []),\n  pico_alignment: JSON.stringify(parsed.pico_alignment || {}),\n  raw_response: aiResponse.substring(0, 2000)\n};"
+      },
+      "id": "parse-response-node",
+      "name": "Parse_Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1450, 200]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const decision = $input.item.json.decision;\nconst confidence = $input.item.json.confidence;\n\n// Confidence-based routing logic\nlet needs_human_review = false;\nlet routing_reason = '';\n\nif (decision === 'UNCERTAIN') {\n  needs_human_review = true;\n  routing_reason = 'AI decision is UNCERTAIN';\n} else if (confidence < 0.7) {\n  needs_human_review = true;\n  routing_reason = `Low confidence: ${confidence.toFixed(2)}`;\n} else if (decision === 'INCLUDE' && confidence < 0.85) {\n  needs_human_review = true;\n  routing_reason = `INCLUDE with moderate confidence: ${confidence.toFixed(2)}`;\n} else {\n  routing_reason = `High confidence ${decision}: ${confidence.toFixed(2)}`;\n}\n\nreturn {\n  ...$input.item.json,\n  needs_human_review,\n  routing_reason,\n  ai_model: 'llama3.1:latest',\n  screening_stage: 'title_abstract',\n  screened_by: 'AI'\n};"
+      },
+      "id": "calculate-routing-node",
+      "name": "Calculate_Routing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1650, 200]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": {
+          "schema": [
+            {
+              "column": "document_id",
+              "type": "uuid"
+            },
+            {
+              "column": "review_id",
+              "type": "uuid"
+            },
+            {
+              "column": "screening_stage",
+              "type": "text"
+            },
+            {
+              "column": "decision",
+              "type": "text"
+            },
+            {
+              "column": "reasoning",
+              "type": "text"
+            },
+            {
+              "column": "confidence",
+              "type": "numeric"
+            },
+            {
+              "column": "relevant_criteria",
+              "type": "jsonb"
+            },
+            {
+              "column": "screened_by",
+              "type": "text"
+            },
+            {
+              "column": "ai_model",
+              "type": "text"
+            },
+            {
+              "column": "needs_human_review",
+              "type": "boolean"
+            }
+          ]
+        },
+        "table": "screening_decisions",
+        "columns": "document_id,review_id,screening_stage,decision,reasoning,confidence,relevant_criteria,screened_by,ai_model,needs_human_review",
+        "options": {}
+      },
+      "id": "save-decision-node",
+      "name": "Save_Decision",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1850, 200],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_slr",
+          "name": "PostgreSQL SLR"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "success"
+            },
+            {
+              "name": "decision",
+              "value": "={{ $json.decision }}"
+            },
+            {
+              "name": "document_id",
+              "value": "={{ $json.document_id }}"
+            },
+            {
+              "name": "routing_reason",
+              "value": "={{ $json.routing_reason }}"
+            }
+          ],
+          "number": [
+            {
+              "name": "confidence",
+              "value": "={{ $json.confidence }}"
+            }
+          ],
+          "boolean": [
+            {
+              "name": "needs_human_review",
+              "value": "={{ $json.needs_human_review }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "return-decision-node",
+      "name": "Return_Decision",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [2050, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "response-success-node",
+      "name": "Response_Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2250, 200]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "error"
+            },
+            {
+              "name": "error",
+              "value": "Document not found"
+            },
+            {
+              "name": "document_id",
+              "value": "={{ $('Execute_Workflow_Trigger').item.json.document_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "error-document-not-found-node",
+      "name": "Error_Document_Not_Found",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [850, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 404
+        }
+      },
+      "id": "response-error-node",
+      "name": "Response_Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1050, 400]
+    }
+  ],
+  "connections": {
+    "Execute_Workflow_Trigger": {
+      "main": [
+        [
+          {
+            "node": "Load_Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load_Document": {
+      "main": [
+        [
+          {
+            "node": "Check_Document_Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check_Document_Exists": {
+      "main": [
+        [
+          {
+            "node": "Load_Review_PICO",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error_Document_Not_Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load_Review_PICO": {
+      "main": [
+        [
+          {
+            "node": "Build_Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build_Prompt": {
+      "main": [
+        [
+          {
+            "node": "Ollama_Screen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama_Screen": {
+      "main": [
+        [
+          {
+            "node": "Parse_Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse_Response": {
+      "main": [
+        [
+          {
+            "node": "Calculate_Routing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate_Routing": {
+      "main": [
+        [
+          {
+            "node": "Save_Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save_Decision": {
+      "main": [
+        [
+          {
+            "node": "Return_Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return_Decision": {
+      "main": [
+        [
+          {
+            "node": "Response_Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error_Document_Not_Found": {
+      "main": [
+        [
+          {
+            "node": "Response_Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "id": "slr-workflows",
+      "name": "SLR Workflows"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2026-01-25T00:00:00.000Z",
+  "versionId": "1.0.0",
+  "active": false
+}

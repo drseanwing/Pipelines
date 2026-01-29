@@ -1,0 +1,25 @@
+{
+  "title": "Exercise interventions for treatment of depression in adults",
+  "prospero_id": "CRD42024000001",
+  "status": "protocol",
+  "pico": {
+    "population": "Adults aged 18+ with diagnosis of depression (DSM/ICD criteria)",
+    "intervention": "Structured exercise interventions (aerobic, resistance, combined)",
+    "comparator": "Treatment as usual, waitlist control, or antidepressant medication",
+    "outcomes": ["Depression severity (PHQ-9, HAM-D, BDI)", "Response rate", "Remission rate", "Quality of life"],
+    "study_types": ["RCT", "Cluster RCT", "Crossover RCT"]
+  },
+  "inclusion_criteria": [
+    "Adults 18+ years with diagnosed depression",
+    "Structured exercise intervention of at least 4 weeks duration",
+    "Randomized controlled trial design",
+    "Depression outcome measured with validated instrument"
+  ],
+  "exclusion_criteria": [
+    "Bipolar disorder or schizophrenia",
+    "Exercise as adjunct to other intervention without control group",
+    "Case reports or case series",
+    "Conference abstracts only"
+  ],
+  "search_strategy": "depression[MeSH] AND exercise[MeSH] AND (randomized controlled trial[pt] OR RCT[tiab])"
+}

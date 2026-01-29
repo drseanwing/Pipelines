@@ -1,0 +1,453 @@
+{
+  "name": "SLR_Human_Review",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "human-review",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "execute-workflow-trigger-node",
+      "name": "Execute_Workflow_Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "slr-human-review-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  sd.id as decision_id,\n  sd.document_id,\n  sd.review_id,\n  sd.decision as ai_decision,\n  sd.reasoning as ai_rationale,\n  sd.confidence as ai_confidence,\n  d.title,\n  d.abstract,\n  d.authors,\n  d.publication_year,\n  d.journal,\n  d.doi\nFROM screening_decisions sd\nINNER JOIN documents d ON sd.document_id = d.id\nWHERE sd.review_id = $1\n  AND sd.screening_stage = 'title_abstract'\n  AND (sd.decision = 'UNCERTAIN' OR sd.confidence < $2)\n  AND sd.human_reviewed = false\nORDER BY sd.confidence ASC, sd.created_at ASC\nLIMIT $3",
+        "options": {
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "review_id",
+                "value": "={{ $json.review_id }}"
+              },
+              {
+                "name": "confidence_threshold",
+                "value": "={{ $json.confidence_threshold || 0.7 }}"
+              },
+              {
+                "name": "batch_size",
+                "value": "={{ $json.batch_size || 10 }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "fetch-pending-reviews-node",
+      "name": "Fetch_Pending_Reviews",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_slr",
+          "name": "PostgreSQL SLR"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const items = $input.all();\n\n// Calculate batch statistics\nconst totalDocs = items.length;\nconst includeCount = items.filter(i => i.json.ai_decision === 'INCLUDE').length;\nconst excludeCount = items.filter(i => i.json.ai_decision === 'EXCLUDE').length;\nconst uncertainCount = items.filter(i => i.json.ai_decision === 'UNCERTAIN').length;\nconst avgConfidence = items.reduce((sum, i) => sum + i.json.ai_confidence, 0) / totalDocs;\n\nconst batchStats = {\n  total: totalDocs,\n  include_count: includeCount,\n  exclude_count: excludeCount,\n  uncertain_count: uncertainCount,\n  avg_confidence: Math.round(avgConfidence * 100)\n};\n\nconst batchStatsDisplay = `Total Documents: ${totalDocs} | Include: ${includeCount} | Exclude: ${excludeCount} | Uncertain: ${uncertainCount} | Avg Confidence: ${Math.round(avgConfidence * 100)}%`;\n\n// Return each item with batch statistics attached\nreturn items.map(item => ({\n  json: {\n    decision_id: item.json.decision_id,\n    document_id: item.json.document_id,\n    review_id: item.json.review_id,\n    batch_statistics: batchStats,\n    batch_stats_display: batchStatsDisplay,\n    display_data: {\n      title: item.json.title,\n      abstract: item.json.abstract || 'No abstract available',\n      abstract_preview: (item.json.abstract || 'No abstract available').substring(0, 500) + (item.json.abstract && item.json.abstract.length > 500 ? '...' : ''),\n      authors: item.json.authors,\n      journal: item.json.journal,\n      year: item.json.publication_year,\n      doi: item.json.doi,\n      ai_decision: item.json.ai_decision,\n      ai_confidence: item.json.ai_confidence,\n      ai_confidence_pct: Math.round(item.json.ai_confidence * 100) + '%',\n      ai_rationale: item.json.ai_rationale\n    }\n  }\n}));"
+      },
+      "id": "format-review-data-node",
+      "name": "Format_Review_Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "formTitle": "Screening Decision Review",
+        "formDescription": "Review and approve or override AI screening decisions for low-confidence or uncertain cases.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Batch Statistics",
+              "fieldType": "text",
+              "requiredField": false,
+              "fieldOptions": {
+                "readOnly": true,
+                "defaultValue": "={{ $json.batch_stats_display }}"
+              }
+            },
+            {
+              "fieldLabel": "Document Title",
+              "fieldType": "text",
+              "requiredField": false,
+              "fieldOptions": {
+                "readOnly": true,
+                "defaultValue": "={{ $json.display_data.title }}"
+              }
+            },
+            {
+              "fieldLabel": "Abstract Preview",
+              "fieldType": "textarea",
+              "requiredField": false,
+              "fieldOptions": {
+                "readOnly": true,
+                "defaultValue": "={{ $json.display_data.abstract_preview }}"
+              }
+            },
+            {
+              "fieldLabel": "AI Decision",
+              "fieldType": "text",
+              "requiredField": false,
+              "fieldOptions": {
+                "readOnly": true,
+                "defaultValue": "={{ $json.display_data.ai_decision }}"
+              }
+            },
+            {
+              "fieldLabel": "AI Confidence",
+              "fieldType": "text",
+              "requiredField": false,
+              "fieldOptions": {
+                "readOnly": true,
+                "defaultValue": "={{ $json.display_data.ai_confidence_pct }}"
+              }
+            },
+            {
+              "fieldLabel": "AI Rationale",
+              "fieldType": "textarea",
+              "requiredField": false,
+              "fieldOptions": {
+                "readOnly": true,
+                "defaultValue": "={{ $json.display_data.ai_rationale }}"
+              }
+            },
+            {
+              "fieldLabel": "Your Decision",
+              "fieldType": "dropdown",
+              "requiredField": true,
+              "fieldOptions": {
+                "choices": "Approve AI Decision,Override to Include,Override to Exclude,Flag for Discussion"
+              }
+            },
+            {
+              "fieldLabel": "Confidence Override (0-100, optional)",
+              "fieldType": "number",
+              "requiredField": false,
+              "fieldOptions": {
+                "placeholder": "Enter confidence score 0-100 if overriding..."
+              }
+            },
+            {
+              "fieldLabel": "Reviewer Notes",
+              "fieldType": "textarea",
+              "requiredField": false,
+              "fieldOptions": {
+                "placeholder": "Optional notes explaining your decision..."
+              }
+            }
+          ]
+        },
+        "options": {
+          "timeout": 259200,
+          "formSubmittedText": "Thank you! Your review has been recorded."
+        }
+      },
+      "id": "human-review-wait-node",
+      "name": "Human_Review_Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const formData = $input.item.json;\nconst decision_id = $input.item.json.decision_id;\nconst document_id = $input.item.json.document_id;\nconst review_id = $input.item.json.review_id;\nconst ai_decision = $input.item.json.display_data.ai_decision;\nconst ai_confidence = $input.item.json.display_data.ai_confidence;\n\nconst userDecision = formData['Your Decision'];\nconst reviewerNotes = formData['Reviewer Notes'] || '';\nconst confidenceOverride = formData['Confidence Override (0-100, optional)'];\n\nlet finalDecision;\nlet overridden = false;\nlet flagged = false;\nlet finalConfidence = ai_confidence;\n\nif (userDecision === 'Approve AI Decision') {\n  finalDecision = ai_decision;\n  overridden = false;\n} else if (userDecision === 'Override to Include') {\n  finalDecision = 'INCLUDE';\n  overridden = true;\n} else if (userDecision === 'Override to Exclude') {\n  finalDecision = 'EXCLUDE';\n  overridden = true;\n} else if (userDecision === 'Flag for Discussion') {\n  finalDecision = 'UNCERTAIN';\n  flagged = true;\n  overridden = false;\n} else {\n  // Fallback\n  finalDecision = ai_decision;\n  overridden = false;\n}\n\n// Apply confidence override if provided\nif (confidenceOverride !== null && confidenceOverride !== undefined && confidenceOverride !== '') {\n  const parsedConfidence = parseFloat(confidenceOverride);\n  if (!isNaN(parsedConfidence) && parsedConfidence >= 0 && parsedConfidence <= 100) {\n    finalConfidence = parsedConfidence / 100;\n  }\n}\n\nreturn {\n  decision_id,\n  document_id,\n  review_id,\n  final_decision: finalDecision,\n  final_confidence: finalConfidence,\n  human_reviewed: true,\n  reviewer_notes: reviewerNotes,\n  overridden: overridden,\n  flagged: flagged,\n  reviewed_at: new Date().toISOString(),\n  reviewer_id: 'human_reviewer_001' // Replace with actual user ID if available\n};"
+      },
+      "id": "process-decision-node",
+      "name": "Process_Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE screening_decisions\nSET \n  decision = $1,\n  confidence = $2,\n  human_reviewed = $3,\n  reviewer_notes = $4,\n  overridden = $5,\n  flagged = $6,\n  reviewed_at = $7,\n  reviewer_id = $8,\n  updated_at = NOW()\nWHERE id = $9\nRETURNING *",
+        "options": {
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "final_decision",
+                "value": "={{ $json.final_decision }}"
+              },
+              {
+                "name": "final_confidence",
+                "value": "={{ $json.final_confidence }}"
+              },
+              {
+                "name": "human_reviewed",
+                "value": "={{ $json.human_reviewed }}"
+              },
+              {
+                "name": "reviewer_notes",
+                "value": "={{ $json.reviewer_notes }}"
+              },
+              {
+                "name": "overridden",
+                "value": "={{ $json.overridden }}"
+              },
+              {
+                "name": "flagged",
+                "value": "={{ $json.flagged }}"
+              },
+              {
+                "name": "reviewed_at",
+                "value": "={{ $json.reviewed_at }}"
+              },
+              {
+                "name": "reviewer_id",
+                "value": "={{ $json.reviewer_id }}"
+              },
+              {
+                "name": "decision_id",
+                "value": "={{ $json.decision_id }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "update-decision-node",
+      "name": "Update_Decision",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1250, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_slr",
+          "name": "PostgreSQL SLR"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO audit_log (\n  review_id,\n  entity_type,\n  entity_id,\n  action,\n  actor_type,\n  actor_id,\n  new_value,\n  reasoning\n)\nVALUES (\n  $1,\n  $2,\n  $3,\n  $4,\n  $5,\n  $6,\n  $7,\n  $8\n)\nRETURNING *",
+        "options": {
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "review_id",
+                "value": "={{ $json.review_id }}"
+              },
+              {
+                "name": "entity_type",
+                "value": "screening_decision"
+              },
+              {
+                "name": "entity_id",
+                "value": "={{ $json.decision_id }}"
+              },
+              {
+                "name": "action",
+                "value": "HUMAN_REVIEW"
+              },
+              {
+                "name": "actor_type",
+                "value": "human"
+              },
+              {
+                "name": "actor_id",
+                "value": "={{ $json.reviewer_id }}"
+              },
+              {
+                "name": "new_value",
+                "value": "={{ JSON.stringify({ document_id: $json.document_id, final_decision: $json.final_decision, final_confidence: $json.final_confidence, overridden: $json.overridden, flagged: $json.flagged, notes: $json.reviewer_notes }) }}"
+              },
+              {
+                "name": "reasoning",
+                "value": "={{ $json.reviewer_notes }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "log-audit-node",
+      "name": "Log_Audit",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_slr",
+          "name": "PostgreSQL SLR"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "review_completed"
+            },
+            {
+              "name": "final_decision",
+              "value": "={{ $json.final_decision }}"
+            },
+            {
+              "name": "reviewer_id",
+              "value": "={{ $json.reviewer_id }}"
+            }
+          ],
+          "number": [
+            {
+              "name": "final_confidence",
+              "value": "={{ $json.final_confidence }}"
+            }
+          ],
+          "boolean": [
+            {
+              "name": "overridden",
+              "value": "={{ $json.overridden }}"
+            },
+            {
+              "name": "flagged",
+              "value": "={{ $json.flagged }}"
+            },
+            {
+              "name": "human_reviewed",
+              "value": "={{ $json.human_reviewed }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "return-status-node",
+      "name": "Return_Status",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [1650, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "response-node",
+      "name": "Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1850, 300]
+    }
+  ],
+  "connections": {
+    "Execute_Workflow_Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch_Pending_Reviews",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch_Pending_Reviews": {
+      "main": [
+        [
+          {
+            "node": "Format_Review_Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format_Review_Data": {
+      "main": [
+        [
+          {
+            "node": "Human_Review_Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Human_Review_Wait": {
+      "main": [
+        [
+          {
+            "node": "Process_Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process_Decision": {
+      "main": [
+        [
+          {
+            "node": "Update_Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update_Decision": {
+      "main": [
+        [
+          {
+            "node": "Log_Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log_Audit": {
+      "main": [
+        [
+          {
+            "node": "Return_Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return_Status": {
+      "main": [
+        [
+          {
+            "node": "Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "id": "slr-workflows",
+      "name": "SLR Workflows"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2026-01-25T00:00:00.000Z",
+  "versionId": "1.0.0",
+  "active": false
+}

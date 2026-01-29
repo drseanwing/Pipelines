@@ -1,0 +1,28 @@
+services:
+  ralph:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ralph
+    # Use named volumes for rootless Docker compatibility
+    # Named volumes are managed by Docker and work correctly with user namespace remapping
+    volumes:
+      # Persistent Ralph state - logs, progress, guardrails
+      - ralph-state:/app/.ralph
+      # Persistent task definitions (PRDs)
+      - ralph-tasks:/app/.agents/tasks
+    working_dir: /app
+    environment:
+      - NODE_ENV=production
+    # Override default command for interactive use
+    # Example: docker compose run ralph node bin/ralph build 1
+    stdin_open: true
+    tty: true
+
+# Named volumes for persistent data
+# These work with rootless Docker by using Docker's volume management
+volumes:
+  ralph-state:
+    driver: local
+  ralph-tasks:
+    driver: local

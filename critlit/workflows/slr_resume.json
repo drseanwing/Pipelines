@@ -1,0 +1,321 @@
+{
+  "name": "SLR_Resume",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "slr-resume",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger-resume",
+      "name": "Webhook_Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "slr-resume-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT ws.*, r.title, r.pico, r.inclusion_criteria, r.exclusion_criteria, r.status\nFROM workflow_state ws\nJOIN reviews r ON ws.review_id = r.id\nWHERE (ws.review_id = $1 OR ws.execution_id = $2)\nORDER BY ws.updated_at DESC\nLIMIT 1",
+        "options": {
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "review_id",
+                "value": "={{ $json.review_id || null }}"
+              },
+              {
+                "name": "execution_id",
+                "value": "={{ $json.execution_id || null }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "load-last-checkpoint-node",
+      "name": "Load_Last_Checkpoint",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "slr_postgres_credentials",
+          "name": "SLR PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "checkpoint-exists-condition",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-checkpoint-exists-node",
+      "name": "Check_Checkpoint_Exists",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate checkpoint integrity\nconst checkpoint = $input.first().json;\n\n// Required fields\nconst requiredFields = [\n  'id',\n  'review_id',\n  'execution_id',\n  'workflow_stage',\n  'checkpoint_data'\n];\n\nconst missing = requiredFields.filter(field => !checkpoint[field]);\n\nif (missing.length > 0) {\n  throw new Error(`Missing required checkpoint fields: ${missing.join(', ')}`);\n}\n\n// Parse checkpoint data\nlet checkpointData;\ntry {\n  checkpointData = typeof checkpoint.checkpoint_data === 'string'\n    ? JSON.parse(checkpoint.checkpoint_data)\n    : checkpoint.checkpoint_data;\n} catch (e) {\n  throw new Error(`Invalid checkpoint_data JSON: ${e.message}`);\n}\n\n// Verify review status allows resume\nconst allowedStatuses = ['protocol', 'searching', 'screening', 'extraction', 'synthesis'];\nif (!allowedStatuses.includes(checkpoint.status)) {\n  throw new Error(`Review status '${checkpoint.status}' does not allow resume. Allowed: ${allowedStatuses.join(', ')}`);\n}\n\n// Verify workflow stage is valid\nconst validStages = [\n  'protocol_setup',\n  'search_execution',\n  'deduplication',\n  'title_abstract_screening',\n  'full_text_screening',\n  'data_extraction',\n  'quality_assessment',\n  'synthesis',\n  'reporting'\n];\n\nif (!validStages.includes(checkpoint.workflow_stage)) {\n  throw new Error(`Invalid workflow_stage: ${checkpoint.workflow_stage}`);\n}\n\n// Check if checkpoint is too old (> 7 days)\nconst checkpointAge = Date.now() - new Date(checkpoint.updated_at).getTime();\nconst maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days in ms\n\nif (checkpointAge > maxAge) {\n  console.warn(`Checkpoint is ${Math.floor(checkpointAge / (24 * 60 * 60 * 1000))} days old`);\n}\n\nreturn {\n  json: {\n    ...checkpoint,\n    checkpoint_data: checkpointData,\n    validation: {\n      passed: true,\n      checkpoint_age_days: Math.floor(checkpointAge / (24 * 60 * 60 * 1000)),\n      validated_at: new Date().toISOString()\n    }\n  }\n};"
+      },
+      "id": "validate-checkpoint-node",
+      "name": "Validate_Checkpoint",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare context for resuming the target workflow\nconst checkpoint = $input.first().json;\nconst checkpointData = checkpoint.checkpoint_data;\n\n// Build resume context based on workflow stage\nconst resumeContext = {\n  // Core identifiers\n  review_id: checkpoint.review_id,\n  execution_id: checkpoint.execution_id,\n  workflow_stage: checkpoint.workflow_stage,\n  \n  // Review metadata\n  review_title: checkpoint.title,\n  pico: checkpoint.pico,\n  inclusion_criteria: checkpoint.inclusion_criteria,\n  exclusion_criteria: checkpoint.exclusion_criteria,\n  review_status: checkpoint.status,\n  \n  // Checkpoint progress\n  resume_from: checkpoint.last_processed_id,\n  items_processed: checkpoint.items_processed,\n  items_total: checkpoint.items_total,\n  error_count: checkpoint.error_count,\n  \n  // Checkpoint metadata\n  checkpoint_id: checkpoint.id,\n  checkpoint_created: checkpoint.created_at,\n  checkpoint_updated: checkpoint.updated_at,\n  \n  // Stage-specific parameters from checkpoint_data\n  stage_parameters: checkpointData,\n  \n  // Resume metadata\n  resume_requested_at: new Date().toISOString(),\n  is_resume: true\n};\n\n// Add stage-specific context\nswitch (checkpoint.workflow_stage) {\n  case 'search_execution':\n    resumeContext.search_query_id = checkpointData.search_query_id || null;\n    resumeContext.batch_size = checkpointData.batch_size || 100;\n    break;\n    \n  case 'title_abstract_screening':\n  case 'full_text_screening':\n    resumeContext.batch_size = checkpointData.batch_size || 20;\n    resumeContext.screening_mode = checkpointData.screening_mode || 'ai_assisted';\n    break;\n    \n  case 'data_extraction':\n    resumeContext.extraction_fields = checkpointData.extraction_fields || [];\n    resumeContext.batch_size = checkpointData.batch_size || 10;\n    break;\n    \n  case 'quality_assessment':\n    resumeContext.assessment_tool = checkpointData.assessment_tool || 'rob2';\n    break;\n    \n  case 'deduplication':\n    resumeContext.similarity_threshold = checkpointData.similarity_threshold || 0.85;\n    break;\n}\n\nreturn {\n  json: resumeContext\n};"
+      },
+      "id": "prepare-resume-context-node",
+      "name": "Prepare_Resume_Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 200]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "",
+          "cachedResultName": ""
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "invoke-stage-workflow-node",
+      "name": "Invoke_Stage_Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1250, 200],
+      "notesInFlow": true,
+      "notes": "Dynamically calls the appropriate workflow based on workflow_stage:\n- search_execution -> SLR_Search_Execution\n- title_abstract_screening -> SLR_Screening_Batch\n- full_text_screening -> SLR_Screening_Batch\n- data_extraction -> SLR_Data_Extraction (future)\n- etc.\n\nNote: Set workflowId dynamically using expressions or switch logic"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE workflow_state\nSET checkpoint_data = jsonb_set(\n  checkpoint_data,\n  '{resumed_at}',\n  to_jsonb($1::text)\n)\nWHERE id = $2\nRETURNING *",
+        "options": {
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "resumed_at",
+                "value": "={{ new Date().toISOString() }}"
+              },
+              {
+                "name": "checkpoint_id",
+                "value": "={{ $('Prepare_Resume_Context').first().json.checkpoint_id }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "update-checkpoint-status-node",
+      "name": "Update_Checkpoint_Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1450, 200],
+      "credentials": {
+        "postgres": {
+          "id": "slr_postgres_credentials",
+          "name": "SLR PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "audit_log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "review_id": "={{ $('Prepare_Resume_Context').first().json.review_id }}",
+            "action": "resume_workflow",
+            "details": "={{ JSON.stringify({\n  workflow_stage: $('Prepare_Resume_Context').first().json.workflow_stage,\n  checkpoint_id: $('Prepare_Resume_Context').first().json.checkpoint_id,\n  resumed_from: $('Prepare_Resume_Context').first().json.resume_from,\n  items_processed: $('Prepare_Resume_Context').first().json.items_processed,\n  items_total: $('Prepare_Resume_Context').first().json.items_total\n}) }}",
+            "timestamp": "={{ new Date().toISOString() }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "log-resume-event-node",
+      "name": "Log_Resume_Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1450, 380],
+      "credentials": {
+        "postgres": {
+          "id": "slr_postgres_credentials",
+          "name": "SLR PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n  status: 'resumed',\n  review_id: $('Prepare_Resume_Context').first().json.review_id,\n  execution_id: $('Prepare_Resume_Context').first().json.execution_id,\n  workflow_stage: $('Prepare_Resume_Context').first().json.workflow_stage,\n  resumed_from: $('Prepare_Resume_Context').first().json.resume_from,\n  items_processed: $('Prepare_Resume_Context').first().json.items_processed,\n  items_total: $('Prepare_Resume_Context').first().json.items_total,\n  checkpoint_age_days: $('Validate_Checkpoint').first().json.validation.checkpoint_age_days,\n  resumed_at: new Date().toISOString(),\n  message: 'Workflow successfully resumed from checkpoint'\n} }}",
+        "options": {}
+      },
+      "id": "return-status-node",
+      "name": "Return_Status",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1650, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n  status: 'error',\n  error: 'checkpoint_not_found',\n  message: 'No checkpoint found for the provided review_id or execution_id',\n  review_id: $json.review_id || null,\n  execution_id: $json.execution_id || null\n} }}",
+        "options": {
+          "responseCode": 404
+        }
+      },
+      "id": "error-no-checkpoint-node",
+      "name": "Error_No_Checkpoint",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [850, 400]
+    }
+  ],
+  "connections": {
+    "Webhook_Trigger": {
+      "main": [
+        [
+          {
+            "node": "Load_Last_Checkpoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load_Last_Checkpoint": {
+      "main": [
+        [
+          {
+            "node": "Check_Checkpoint_Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check_Checkpoint_Exists": {
+      "main": [
+        [
+          {
+            "node": "Validate_Checkpoint",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error_No_Checkpoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate_Checkpoint": {
+      "main": [
+        [
+          {
+            "node": "Prepare_Resume_Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare_Resume_Context": {
+      "main": [
+        [
+          {
+            "node": "Invoke_Stage_Workflow",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log_Resume_Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Invoke_Stage_Workflow": {
+      "main": [
+        [
+          {
+            "node": "Update_Checkpoint_Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update_Checkpoint_Status": {
+      "main": [
+        [
+          {
+            "node": "Return_Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "id": "slr-workflows",
+      "name": "SLR Workflows"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2026-01-25T00:00:00.000Z",
+  "versionId": "1.0.0",
+  "active": false
+}

@@ -1,0 +1,176 @@
+# FOAM N8N Monitoring Stack
+# Docker Compose overlay for monitoring services
+# Version: 1.0.0
+#
+# Usage:
+#   docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+#
+# Access:
+#   - Grafana: https://grafana.${DOMAIN}
+#   - Prometheus: http://localhost:9090
+
+version: '3.8'
+
+services:
+  # =============================================================================
+  # PROMETHEUS - Metrics Collection
+  # =============================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: foam-prometheus
+    restart: always
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/alerting-rules.yml:/etc/prometheus/alerting-rules.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - default
+    labels:
+      - "traefik.enable=false"
+
+  # =============================================================================
+  # GRAFANA - Visualization Dashboard
+  # =============================================================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: foam-grafana
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set in .env}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_DOMAIN=${DOMAIN:-localhost}
+      - GF_SERVER_ROOT_URL=https://grafana.${DOMAIN:-localhost}
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel,grafana-clock-panel
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/provisioning/dashboards/foam-overview.json
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    depends_on:
+      - prometheus
+    networks:
+      - default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.${DOMAIN}`)"
+      - "traefik.http.routers.grafana.entrypoints=websecure"
+      - "traefik.http.routers.grafana.tls.certresolver=letsencrypt"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+
+  # =============================================================================
+  # NODE EXPORTER - Host Metrics
+  # =============================================================================
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: foam-node-exporter
+    restart: always
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    networks:
+      - default
+    labels:
+      - "traefik.enable=false"
+
+  # =============================================================================
+  # POSTGRES EXPORTER - Database Metrics
+  # =============================================================================
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: foam-postgres-exporter
+    restart: always
+    ports:
+      - "9187:9187"
+    environment:
+      - DATA_SOURCE_NAME=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/n8n?sslmode=disable
+      - PG_EXPORTER_EXTEND_QUERY_PATH=/etc/postgres_exporter/queries.yaml
+    volumes:
+      - ./config/postgres-exporter-queries.yaml:/etc/postgres_exporter/queries.yaml:ro
+    depends_on:
+      - postgres
+    networks:
+      - default
+    labels:
+      - "traefik.enable=false"
+
+  # =============================================================================
+  # CADVISOR - Container Metrics
+  # =============================================================================
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: foam-cadvisor
+    restart: always
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+    devices:
+      - /dev/kmsg
+    networks:
+      - default
+    labels:
+      - "traefik.enable=false"
+
+  # =============================================================================
+  # CUSTOM FOAM WORKFLOW METRICS EXPORTER (Optional)
+  # =============================================================================
+  # This is a placeholder for a custom exporter that queries PostgreSQL
+  # and exposes workflow-specific metrics
+  #
+  # foam-workflow-exporter:
+  #   build: ./exporters/workflow-exporter
+  #   container_name: foam-workflow-exporter
+  #   restart: always
+  #   ports:
+  #     - "9999:9999"
+  #   environment:
+  #     - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/n8n
+  #     - EXPORTER_PORT=9999
+  #   depends_on:
+  #     - postgres
+  #   networks:
+  #     - default
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+volumes:
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+# Uses default network from main docker-compose.yml
+networks:
+  default:
+    name: foam-network
+    external: true

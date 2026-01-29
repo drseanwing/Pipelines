@@ -1,0 +1,322 @@
+# FOAM N8N Monitoring - Alerting Rules
+# Version: 1.0.0
+# Prometheus alerting rules for critical system conditions
+
+groups:
+  # =============================================================================
+  # SERVICE AVAILABILITY ALERTS
+  # =============================================================================
+  - name: service_availability
+    interval: 30s
+    rules:
+      - alert: N8NServiceDown
+        expr: up{job="n8n"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: n8n
+        annotations:
+          summary: "N8N service is down"
+          description: "N8N has been unreachable for more than 2 minutes."
+
+      - alert: PostgresServiceDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: postgres
+        annotations:
+          summary: "PostgreSQL service is down"
+          description: "PostgreSQL database has been unreachable for more than 1 minute."
+
+      - alert: OllamaServiceDown
+        expr: up{job="ollama"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          service: ollama
+        annotations:
+          summary: "Ollama service is down"
+          description: "Ollama LLM service has been unreachable for more than 5 minutes."
+
+      - alert: GrafanaServiceDown
+        expr: up{job="grafana"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          service: grafana
+        annotations:
+          summary: "Grafana service is down"
+          description: "Grafana monitoring dashboard is unreachable."
+
+  # =============================================================================
+  # DATABASE HEALTH ALERTS
+  # =============================================================================
+  - name: database_health
+    interval: 30s
+    rules:
+      - alert: PostgresConnectionFailures
+        expr: rate(pg_stat_database_xact_rollback{datname="n8n"}[5m]) > 0.1
+        for: 3m
+        labels:
+          severity: warning
+          service: postgres
+        annotations:
+          summary: "High PostgreSQL transaction rollback rate"
+          description: "Database is experiencing {{ $value | humanizePercentage }} rollback rate on n8n database."
+
+      - alert: PostgresTooManyConnections
+        expr: sum(pg_stat_activity_count) / sum(pg_settings_max_connections) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          service: postgres
+        annotations:
+          summary: "PostgreSQL approaching connection limit"
+          description: "Database is using {{ $value | humanizePercentage }} of available connections."
+
+      - alert: PostgresDeadlocks
+        expr: rate(pg_stat_database_deadlocks{datname="n8n"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: postgres
+        annotations:
+          summary: "PostgreSQL deadlocks detected"
+          description: "Database deadlocks occurring at {{ $value }} per second."
+
+      - alert: PostgresDatabaseSizeGrowth
+        expr: pg_database_size_bytes{datname="n8n"} > 50 * 1024 * 1024 * 1024  # 50GB
+        for: 10m
+        labels:
+          severity: warning
+          service: postgres
+        annotations:
+          summary: "N8N database size exceeds 50GB"
+          description: "Database size is {{ $value | humanize1024 }}. Consider archiving old data."
+
+  # =============================================================================
+  # RESOURCE USAGE ALERTS
+  # =============================================================================
+  - name: resource_usage
+    interval: 30s
+    rules:
+      - alert: HighMemoryUsage
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          resource: memory
+        annotations:
+          summary: "High memory usage detected"
+          description: "Host memory usage is above 85% (current: {{ $value | humanizePercentage }})."
+
+      - alert: CriticalMemoryUsage
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.95
+        for: 2m
+        labels:
+          severity: critical
+          resource: memory
+        annotations:
+          summary: "Critical memory usage"
+          description: "Host memory usage is above 95% (current: {{ $value | humanizePercentage }})."
+
+      - alert: DiskSpaceLow
+        expr: |
+          (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.1
+        for: 5m
+        labels:
+          severity: warning
+          resource: disk
+        annotations:
+          summary: "Disk space below 10%"
+          description: "Root filesystem has less than 10% free space remaining ({{ $value | humanize1024 }} available)."
+
+      - alert: DiskSpaceCritical
+        expr: |
+          (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.05
+        for: 2m
+        labels:
+          severity: critical
+          resource: disk
+        annotations:
+          summary: "Critical disk space"
+          description: "Root filesystem has less than 5% free space remaining."
+
+      - alert: HighCPUUsage
+        expr: |
+          100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 10m
+        labels:
+          severity: warning
+          resource: cpu
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage above 80% for 10 minutes (current: {{ $value | humanize }}%)."
+
+  # =============================================================================
+  # CONTAINER HEALTH ALERTS
+  # =============================================================================
+  - name: container_health
+    interval: 30s
+    rules:
+      - alert: ContainerHighMemory
+        expr: |
+          (container_memory_usage_bytes{name=~"(n8n|postgres|ollama)"}
+           / container_spec_memory_limit_bytes{name=~"(n8n|postgres|ollama)"}) > 0.90
+        for: 5m
+        labels:
+          severity: warning
+          resource: container
+        annotations:
+          summary: "Container {{ $labels.name }} high memory usage"
+          description: "Container is using {{ $value | humanizePercentage }} of memory limit."
+
+      - alert: ContainerRestarting
+        expr: |
+          rate(container_last_seen{name=~"(n8n|postgres|ollama)"}[5m]) > 0.1
+        for: 1m
+        labels:
+          severity: warning
+          resource: container
+        annotations:
+          summary: "Container {{ $labels.name }} is restarting"
+          description: "Container has restarted multiple times in the last 5 minutes."
+
+  # =============================================================================
+  # WORKFLOW EXECUTION ALERTS
+  # =============================================================================
+  - name: workflow_health
+    interval: 60s
+    rules:
+      - alert: HighWorkflowErrorRate
+        expr: |
+          (
+            sum(rate(foam_workflow_errors_total[5m]))
+            /
+            sum(rate(foam_workflow_executions_total[5m]))
+          ) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          service: workflows
+        annotations:
+          summary: "High workflow error rate"
+          description: "Workflow error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      - alert: WorkflowExecutionFailures
+        expr: |
+          sum(increase(foam_workflow_errors_total{workflow_name=~".*"}[15m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+          service: workflows
+        annotations:
+          summary: "Multiple workflow execution failures"
+          description: "{{ $value }} workflow failures in the last 15 minutes for workflow {{ $labels.workflow_name }}."
+
+      - alert: LLMAPIRateLimiting
+        expr: |
+          sum(increase(foam_workflow_errors_total{error_type="rate_limit"}[5m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: llm
+        annotations:
+          summary: "LLM API rate limiting detected"
+          description: "{{ $value }} rate limit errors in the last 5 minutes. Consider implementing backoff."
+
+      - alert: WorkflowExecutionStalled
+        expr: |
+          time() - max(foam_workflow_last_execution_timestamp_seconds) > 3600
+        for: 5m
+        labels:
+          severity: warning
+          service: workflows
+        annotations:
+          summary: "No workflow executions in last hour"
+          description: "System may be stalled. Last execution was {{ $value | humanizeDuration }} ago."
+
+  # =============================================================================
+  # COST AND USAGE ALERTS
+  # =============================================================================
+  - name: cost_monitoring
+    interval: 300s
+    rules:
+      - alert: HighAPIUsageCost
+        expr: |
+          increase(foam_api_cost_total[1h]) > 10.00
+        for: 5m
+        labels:
+          severity: warning
+          category: cost
+        annotations:
+          summary: "High API usage cost detected"
+          description: "API costs exceeded $10 in the last hour (current: ${{ $value }})."
+
+      - alert: UnusualTokenUsage
+        expr: |
+          rate(foam_tokens_used_total[5m]) > 10000
+        for: 10m
+        labels:
+          severity: info
+          category: usage
+        annotations:
+          summary: "Unusual token usage pattern"
+          description: "Token usage rate is {{ $value }} tokens/sec, higher than normal."
+
+  # =============================================================================
+  # OLLAMA/LLM HEALTH
+  # =============================================================================
+  - name: llm_health
+    interval: 60s
+    rules:
+      - alert: OllamaHighResponseTime
+        expr: |
+          histogram_quantile(0.95, rate(ollama_request_duration_seconds_bucket[5m])) > 30
+        for: 10m
+        labels:
+          severity: warning
+          service: ollama
+        annotations:
+          summary: "Ollama slow response times"
+          description: "95th percentile response time is {{ $value }}s, exceeding 30s threshold."
+
+      - alert: OllamaModelLoadFailure
+        expr: |
+          increase(ollama_model_load_errors_total[10m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: ollama
+        annotations:
+          summary: "Ollama model loading failures"
+          description: "{{ $value }} model load failures in the last 10 minutes."
+
+  # =============================================================================
+  # PROMETHEUS SELF-MONITORING
+  # =============================================================================
+  - name: prometheus_health
+    interval: 30s
+    rules:
+      - alert: PrometheusTooManySamples
+        expr: prometheus_tsdb_symbol_table_size_bytes > 50000000  # 50MB
+        for: 10m
+        labels:
+          severity: warning
+          service: prometheus
+        annotations:
+          summary: "Prometheus storing too many samples"
+          description: "TSDB symbol table is {{ $value | humanize1024 }}. Consider reducing retention."
+
+      - alert: PrometheusTargetDown
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: warning
+          service: prometheus
+        annotations:
+          summary: "Prometheus target {{ $labels.job }} is down"
+          description: "Target has been unreachable for more than 5 minutes."

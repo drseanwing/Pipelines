@@ -1,0 +1,76 @@
+{
+  "request_id": "550e8400-e29b-41d4-a716-446655440003",
+  "format": "clinical-review",
+  "topic": {
+    "title": "Push Dose Vasopressors in the Emergency Department",
+    "clinical_question": "What is the evidence, safety profile, and practical approach to using push dose vasopressors (bolus dose vasopressors) for transient hypotension in the emergency department?",
+    "scope_notes": "Comprehensive review covering: indications, contraindications, preparation methods, dosing protocols, monitoring requirements, and common pitfalls. Compare push dose adrenaline vs phenylephrine. Include pre-hospital and ED perspectives. Address the controversy around standardisation and medication errors. Cover Australian context specifically.",
+    "keywords": [
+      "push dose pressors",
+      "bolus vasopressors",
+      "adrenaline",
+      "phenylephrine",
+      "transient hypotension",
+      "RSI hypotension",
+      "peri-intubation hypotension",
+      "medication safety"
+    ],
+    "related_conditions": [
+      "peri-intubation hypotension",
+      "post-intubation hypotension",
+      "neurogenic shock",
+      "anaphylaxis",
+      "distributive shock"
+    ]
+  },
+  "requestor": {
+    "name": "Dr Emily Wong",
+    "email": "emily.wong@health.qld.gov.au",
+    "institution": "Gold Coast University Hospital",
+    "role": "Emergency Medicine Consultant"
+  },
+  "target_audience": "mixed",
+  "urgency": "routine",
+  "regional_context": "australia",
+  "suggested_reviewers": [
+    {
+      "name": "Dr David Park",
+      "email": "david.park@health.qld.gov.au",
+      "credentials": "MBBS FACEM",
+      "speciality": "Emergency Medicine"
+    },
+    {
+      "name": "Dr Lisa Nguyen",
+      "email": "lisa.nguyen@health.qld.gov.au",
+      "credentials": "BPharm MPS",
+      "speciality": "Clinical Pharmacy - Critical Care"
+    }
+  ],
+  "additional_resources": [
+    {
+      "type": "url",
+      "reference": "https://emcrit.org/emcrit/bolus-dose-pressors/",
+      "notes": "EMCrit original post on push dose pressors"
+    },
+    {
+      "type": "url",
+      "reference": "https://litfl.com/push-dose-adrenaline/",
+      "notes": "LITFL push dose adrenaline coverage"
+    },
+    {
+      "type": "pmid",
+      "reference": "30779142",
+      "notes": "Safety of push dose vasopressors systematic review"
+    },
+    {
+      "type": "guideline",
+      "reference": "Queensland Health Injectable Drug Guide",
+      "notes": "Local preparation standards"
+    }
+  ],
+  "created_at": "2025-01-21T12:00:00Z",
+  "metadata": {
+    "source": "manual",
+    "version": "1.0.0"
+  }
+}

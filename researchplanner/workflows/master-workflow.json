@@ -1,0 +1,1305 @@
+{
+  "name": "QI-Research Pipeline Master",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "qi-research-intake",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {
+          "responseCode": 202,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 400],
+      "webhookId": "qi-research-intake-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Input Validation for QI Research Pipeline Intake\nconst input = $input.first().json;\nconst errors = [];\nconst warnings = [];\n\n// Required field validation\nconst requiredFields = [\n  'project_title',\n  'project_type',\n  'concept_description',\n  'clinical_problem',\n  'target_population',\n  'setting',\n  'principal_investigator',\n  'intended_outcomes'\n];\n\nfor (const field of requiredFields) {\n  if (!input[field] || (typeof input[field] === 'string' && input[field].trim() === '')) {\n    errors.push(`Missing required field: ${field}`);\n  }\n}\n\n// Project type validation\nconst validProjectTypes = ['QI', 'RESEARCH', 'HYBRID'];\nif (input.project_type && !validProjectTypes.includes(input.project_type)) {\n  errors.push(`Invalid project_type. Must be one of: ${validProjectTypes.join(', ')}`);\n}\n\n// Concept description length validation (500-2000 chars)\nif (input.concept_description) {\n  const len = input.concept_description.length;\n  if (len < 500) {\n    warnings.push(`concept_description is shorter than recommended (${len}/500 min chars)`);\n  }\n  if (len > 2000) {\n    errors.push(`concept_description exceeds maximum length (${len}/2000 chars)`);\n  }\n}\n\n// Principal investigator validation\nif (input.principal_investigator) {\n  const pi = input.principal_investigator;\n  const piRequiredFields = ['name', 'role', 'institution', 'email'];\n  for (const field of piRequiredFields) {\n    if (!pi[field]) {\n      errors.push(`Missing principal_investigator.${field}`);\n    }\n  }\n  // Email format validation\n  if (pi.email && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(pi.email)) {\n    errors.push('Invalid principal_investigator.email format');\n  }\n}\n\n// Grant target validation (if provided)\nconst validGrantTargets = ['EMF_JUMPSTART', 'EMF_LEADING_EDGE', 'EMF_TRANSLATED', 'INTERNAL', 'OTHER'];\nif (input.grant_target && !validGrantTargets.includes(input.grant_target)) {\n  errors.push(`Invalid grant_target. Must be one of: ${validGrantTargets.join(', ')}`);\n}\n\n// Generate project ID\nconst projectId = 'QRP-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();\n\n// Prepare validated output\nconst validatedData = {\n  ...input,\n  project_id: projectId,\n  validation: {\n    is_valid: errors.length === 0,\n    errors: errors,\n    warnings: warnings,\n    validated_at: new Date().toISOString()\n  },\n  pipeline_state: {\n    current_stage: 'INTAKE',\n    status: errors.length === 0 ? 'PROCESSING' : 'VALIDATION_FAILED',\n    started_at: new Date().toISOString(),\n    checkpoints: {\n      intake_approved: false,\n      research_approved: false,\n      methodology_approved: false,\n      ethics_approved: false,\n      documents_approved: false\n    }\n  },\n  audit_log: [{\n    timestamp: new Date().toISOString(),\n    action: 'PROJECT_INTAKE_RECEIVED',\n    actor: 'system',\n    details: {\n      source: 'webhook',\n      validation_result: errors.length === 0 ? 'passed' : 'failed',\n      error_count: errors.length,\n      warning_count: warnings.length\n    }\n  }]\n};\n\nreturn [{ json: validatedData }];"
+      },
+      "id": "validate-input",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "validation-check",
+              "leftValue": "={{ $json.validation.is_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "validation-router",
+      "name": "Validation Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, project_id: $json.project_id, errors: $json.validation.errors, warnings: $json.validation.warnings, message: 'Validation failed. Please correct the errors and resubmit.' }) }}",
+        "options": {
+          "responseCode": 400,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "validation-error-response",
+      "name": "Validation Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 560]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "projects",
+        "columns": "id, status, intake, classification, checkpoints, created_at, updated_at",
+        "options": {},
+        "dataMode": "autoMapInputData"
+      },
+      "id": "store-project",
+      "name": "Store Project Record",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [900, 240],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-qi-pipeline",
+          "name": "QI Pipeline Database"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $workflow.id }}_intake"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "execute-intake",
+      "name": "Execute Intake Stage",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1120, 240]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Add audit log entry for intake completion\nconst data = $input.first().json;\n\ndata.audit_log.push({\n  timestamp: new Date().toISOString(),\n  action: 'INTAKE_STAGE_COMPLETED',\n  actor: 'intake_agent',\n  details: {\n    classification: data.classification,\n    frameworks: data.frameworks\n  }\n});\n\ndata.pipeline_state.current_stage = 'INTAKE_REVIEW';\ndata.pipeline_state.status = 'AWAITING_APPROVAL';\n\nreturn [{ json: data }];"
+      },
+      "id": "log-intake-complete",
+      "name": "Log Intake Complete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 240]
+    },
+    {
+      "parameters": {
+        "fromEmail": "qi-pipeline@metronorth.health.qld.gov.au",
+        "toEmail": "={{ $json.principal_investigator.email }}",
+        "subject": "QI Pipeline: Intake Review Required - {{ $json.project_title }}",
+        "emailType": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head><style>body{font-family:Arial,sans-serif;line-height:1.6;color:#333}.container{max-width:600px;margin:0 auto;padding:20px}.header{background:#2563eb;color:white;padding:20px;text-align:center}.content{padding:20px;background:#f9fafb}.button{display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;margin:10px 5px}.button.secondary{background:#6b7280}.footer{padding:20px;text-align:center;font-size:12px;color:#6b7280}</style></head>\n<body>\n<div class=\"container\">\n<div class=\"header\"><h1>QI Research Pipeline</h1><p>Intake Review Required</p></div>\n<div class=\"content\">\n<h2>Project: {{ $json.project_title }}</h2>\n<p><strong>Project ID:</strong> {{ $json.project_id }}</p>\n<p><strong>Classification:</strong> {{ $json.classification.project_type }} (Confidence: {{ Math.round($json.classification.confidence * 100) }}%)</p>\n<h3>Classification Reasoning:</h3>\n<p>{{ $json.classification.reasoning }}</p>\n<h3>Suggested Designs:</h3>\n<ul>{{ $json.classification.suggested_designs.map(d => '<li>' + d + '</li>').join('') }}</ul>\n<h3>Applicable Frameworks:</h3>\n<ul>\n<li>Reporting Guideline: {{ $json.frameworks.reporting_guideline }}</li>\n<li>Ethics Framework: {{ $json.frameworks.ethics_framework }}</li>\n</ul>\n<p>Please review the intake classification and approve to proceed to the Research stage.</p>\n<p>\n<a href=\"{{ $env.WEBHOOK_URL }}/webhook/{{ $json.project_id }}/intake-approved\" class=\"button\">Approve & Continue</a>\n<a href=\"{{ $env.WEBHOOK_URL }}/webhook/{{ $json.project_id }}/intake-revision\" class=\"button secondary\">Request Revision</a>\n</p>\n</div>\n<div class=\"footer\"><p>QI Research Pipeline | Metro North Health</p></div>\n</div>\n</body>\n</html>",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "email-intake-review",
+      "name": "Email: Intake Review",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1560, 240],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-qi-pipeline",
+          "name": "QI Pipeline SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "options": {
+          "webhookSuffix": "={{ $json.project_id }}/intake-approved"
+        }
+      },
+      "id": "checkpoint-intake",
+      "name": "Checkpoint: Intake Review",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1780, 240],
+      "webhookId": "intake-checkpoint"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process intake approval and prepare for research stage\nconst data = $input.first().json;\n\ndata.pipeline_state.checkpoints.intake_approved = true;\ndata.pipeline_state.current_stage = 'RESEARCH';\ndata.pipeline_state.status = 'PROCESSING';\n\ndata.audit_log.push({\n  timestamp: new Date().toISOString(),\n  action: 'INTAKE_APPROVED',\n  actor: 'user',\n  details: {\n    approval_source: 'webhook',\n    checkpoint: 'intake_review'\n  }\n});\n\nreturn [{ json: data }];"
+      },
+      "id": "process-intake-approval",
+      "name": "Process Intake Approval",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 240]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $workflow.id }}_research"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "execute-research",
+      "name": "Execute Research Stage",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [2220, 240]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Add audit log entry for research completion\nconst data = $input.first().json;\n\ndata.audit_log.push({\n  timestamp: new Date().toISOString(),\n  action: 'RESEARCH_STAGE_COMPLETED',\n  actor: 'research_agent',\n  details: {\n    articles_found: data.research?.primary_literature?.length || 0,\n    search_strategy: data.research?.search_strategy?.pubmed_query ? 'generated' : 'failed'\n  }\n});\n\ndata.pipeline_state.current_stage = 'RESEARCH_REVIEW';\ndata.pipeline_state.status = 'AWAITING_APPROVAL';\n\nreturn [{ json: data }];"
+      },
+      "id": "log-research-complete",
+      "name": "Log Research Complete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2440, 240]
+    },
+    {
+      "parameters": {
+        "fromEmail": "qi-pipeline@metronorth.health.qld.gov.au",
+        "toEmail": "={{ $json.principal_investigator.email }}",
+        "subject": "QI Pipeline: Research Review Required - {{ $json.project_title }}",
+        "emailType": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head><style>body{font-family:Arial,sans-serif;line-height:1.6;color:#333}.container{max-width:600px;margin:0 auto;padding:20px}.header{background:#059669;color:white;padding:20px;text-align:center}.content{padding:20px;background:#f9fafb}.button{display:inline-block;padding:12px 24px;background:#059669;color:white;text-decoration:none;border-radius:6px;margin:10px 5px}.button.secondary{background:#6b7280}.footer{padding:20px;text-align:center;font-size:12px;color:#6b7280}.stats{background:#ecfdf5;padding:15px;border-radius:8px;margin:15px 0}</style></head>\n<body>\n<div class=\"container\">\n<div class=\"header\"><h1>QI Research Pipeline</h1><p>Research Review Required</p></div>\n<div class=\"content\">\n<h2>Project: {{ $json.project_title }}</h2>\n<p><strong>Project ID:</strong> {{ $json.project_id }}</p>\n<div class=\"stats\">\n<h3>Research Summary</h3>\n<p><strong>Primary Articles Found:</strong> {{ $json.research?.primary_literature?.length || 0 }}</p>\n<p><strong>Secondary Articles:</strong> {{ $json.research?.secondary_literature?.length || 0 }}</p>\n<p><strong>Search Strategy:</strong> {{ $json.research?.search_strategy?.pubmed_query?.substring(0, 100) }}...</p>\n</div>\n<h3>Gap Analysis Summary:</h3>\n<p>{{ $json.research?.gap_analysis?.summary || 'Gap analysis pending review' }}</p>\n<h3>Evidence Synthesis:</h3>\n<p>{{ ($json.research?.evidence_synthesis || 'Evidence synthesis pending review').substring(0, 500) }}...</p>\n<p>Please review the literature search results and evidence synthesis.</p>\n<p>\n<a href=\"{{ $env.WEBHOOK_URL }}/webhook/{{ $json.project_id }}/research-approved\" class=\"button\">Approve & Continue</a>\n<a href=\"{{ $env.WEBHOOK_URL }}/webhook/{{ $json.project_id }}/research-revision\" class=\"button secondary\">Request Revision</a>\n</p>\n</div>\n<div class=\"footer\"><p>QI Research Pipeline | Metro North Health</p></div>\n</div>\n</body>\n</html>",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "email-research-review",
+      "name": "Email: Research Review",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2660, 240],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-qi-pipeline",
+          "name": "QI Pipeline SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "options": {
+          "webhookSuffix": "={{ $json.project_id }}/research-approved"
+        }
+      },
+      "id": "checkpoint-research",
+      "name": "Checkpoint: Research Review",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2880, 240],
+      "webhookId": "research-checkpoint"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process research approval and prepare for methodology stage\nconst data = $input.first().json;\n\ndata.pipeline_state.checkpoints.research_approved = true;\ndata.pipeline_state.current_stage = 'METHODOLOGY';\ndata.pipeline_state.status = 'PROCESSING';\n\ndata.audit_log.push({\n  timestamp: new Date().toISOString(),\n  action: 'RESEARCH_APPROVED',\n  actor: 'user',\n  details: {\n    approval_source: 'webhook',\n    checkpoint: 'research_review'\n  }\n});\n\nreturn [{ json: data }];"
+      },
+      "id": "process-research-approval",
+      "name": "Process Research Approval",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3100, 240]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $workflow.id }}_methodology"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "execute-methodology",
+      "name": "Execute Methodology Stage",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [3320, 240]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Add audit log entry for methodology completion\nconst data = $input.first().json;\n\ndata.audit_log.push({\n  timestamp: new Date().toISOString(),\n  action: 'METHODOLOGY_STAGE_COMPLETED',\n  actor: 'methods_agent',\n  details: {\n    study_design: data.methodology?.study_design?.type,\n    sample_size: data.methodology?.participants?.sample_size?.target,\n    primary_outcome: data.methodology?.outcomes?.primary?.name\n  }\n});\n\ndata.pipeline_state.current_stage = 'METHODOLOGY_REVIEW';\ndata.pipeline_state.status = 'AWAITING_APPROVAL';\n\nreturn [{ json: data }];"
+      },
+      "id": "log-methodology-complete",
+      "name": "Log Methodology Complete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3540, 240]
+    },
+    {
+      "parameters": {
+        "fromEmail": "qi-pipeline@metronorth.health.qld.gov.au",
+        "toEmail": "={{ $json.principal_investigator.email }}",
+        "subject": "QI Pipeline: Methodology Review Required - {{ $json.project_title }}",
+        "emailType": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head><style>body{font-family:Arial,sans-serif;line-height:1.6;color:#333}.container{max-width:600px;margin:0 auto;padding:20px}.header{background:#7c3aed;color:white;padding:20px;text-align:center}.content{padding:20px;background:#f9fafb}.button{display:inline-block;padding:12px 24px;background:#7c3aed;color:white;text-decoration:none;border-radius:6px;margin:10px 5px}.button.secondary{background:#6b7280}.footer{padding:20px;text-align:center;font-size:12px;color:#6b7280}.methodology{background:#f5f3ff;padding:15px;border-radius:8px;margin:15px 0}</style></head>\n<body>\n<div class=\"container\">\n<div class=\"header\"><h1>QI Research Pipeline</h1><p>Methodology Review Required</p></div>\n<div class=\"content\">\n<h2>Project: {{ $json.project_title }}</h2>\n<p><strong>Project ID:</strong> {{ $json.project_id }}</p>\n<div class=\"methodology\">\n<h3>Study Design</h3>\n<p><strong>Type:</strong> {{ $json.methodology?.study_design?.type || 'Pending' }}</p>\n<p><strong>Reporting Guideline:</strong> {{ $json.methodology?.study_design?.reporting_guideline || 'TBD' }}</p>\n<p><strong>Justification:</strong> {{ $json.methodology?.study_design?.justification || 'Pending' }}</p>\n</div>\n<h3>Participants</h3>\n<p><strong>Sample Size:</strong> {{ $json.methodology?.participants?.sample_size?.target || 'N/A' }}</p>\n<p><strong>Recruitment Strategy:</strong> {{ $json.methodology?.participants?.recruitment_strategy?.method || 'TBD' }}</p>\n<h3>Outcomes</h3>\n<p><strong>Primary:</strong> {{ $json.methodology?.outcomes?.primary?.name || 'Pending' }}</p>\n<p><strong>Secondary Count:</strong> {{ $json.methodology?.outcomes?.secondary?.length || 0 }}</p>\n<h3>Timeline</h3>\n<p><strong>Total Duration:</strong> {{ $json.methodology?.timeline?.total_duration || 'TBD' }}</p>\n<p>Please review the methodology and confirm the study design is appropriate.</p>\n<p>\n<a href=\"{{ $env.WEBHOOK_URL }}/webhook/{{ $json.project_id }}/methods-approved\" class=\"button\">Approve & Continue</a>\n<a href=\"{{ $env.WEBHOOK_URL }}/webhook/{{ $json.project_id }}/methods-revision\" class=\"button secondary\">Request Revision</a>\n</p>\n</div>\n<div class=\"footer\"><p>QI Research Pipeline | Metro North Health</p></div>\n</div>\n</body>\n</html>",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "email-methodology-review",
+      "name": "Email: Methodology Review",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [3760, 240],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-qi-pipeline",
+          "name": "QI Pipeline SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "options": {
+          "webhookSuffix": "={{ $json.project_id }}/methods-approved"
+        }
+      },
+      "id": "checkpoint-methodology",
+      "name": "Checkpoint: Methods Review",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [3980, 240],
+      "webhookId": "methods-checkpoint"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process methodology approval and prepare for ethics stage\nconst data = $input.first().json;\n\ndata.pipeline_state.checkpoints.methodology_approved = true;\ndata.pipeline_state.current_stage = 'ETHICS';\ndata.pipeline_state.status = 'PROCESSING';\n\ndata.audit_log.push({\n  timestamp: new Date().toISOString(),\n  action: 'METHODOLOGY_APPROVED',\n  actor: 'user',\n  details: {\n    approval_source: 'webhook',\n    checkpoint: 'methods_review'\n  }\n});\n\nreturn [{ json: data }];"
+      },
+      "id": "process-methodology-approval",
+      "name": "Process Methodology Approval",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4200, 240]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $workflow.id }}_ethics"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "execute-ethics",
+      "name": "Execute Ethics Stage",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [4420, 240]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Add audit log entry for ethics completion\nconst data = $input.first().json;\n\ndata.audit_log.push({\n  timestamp: new Date().toISOString(),\n  action: 'ETHICS_STAGE_COMPLETED',\n  actor: 'ethics_agent',\n  details: {\n    ethics_pathway: data.ethics?.ethics_pathway?.pathway,\n    risk_level: data.ethics?.risk_assessment?.level,\n    requires_hrec: data.ethics?.ethics_pathway?.requires_hrec\n  }\n});\n\ndata.pipeline_state.current_stage = 'ETHICS_REVIEW';\ndata.pipeline_state.status = 'AWAITING_APPROVAL';\n\nreturn [{ json: data }];"
+      },
+      "id": "log-ethics-complete",
+      "name": "Log Ethics Complete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4640, 240]
+    },
+    {
+      "parameters": {
+        "fromEmail": "qi-pipeline@metronorth.health.qld.gov.au",
+        "toEmail": "={{ $json.principal_investigator.email }}",
+        "subject": "QI Pipeline: Ethics Review Required - {{ $json.project_title }}",
+        "emailType": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head><style>body{font-family:Arial,sans-serif;line-height:1.6;color:#333}.container{max-width:600px;margin:0 auto;padding:20px}.header{background:#dc2626;color:white;padding:20px;text-align:center}.content{padding:20px;background:#f9fafb}.button{display:inline-block;padding:12px 24px;background:#dc2626;color:white;text-decoration:none;border-radius:6px;margin:10px 5px}.button.secondary{background:#6b7280}.footer{padding:20px;text-align:center;font-size:12px;color:#6b7280}.ethics{background:#fef2f2;padding:15px;border-radius:8px;margin:15px 0}.risk-low{color:#059669}.risk-moderate{color:#d97706}.risk-high{color:#dc2626}</style></head>\n<body>\n<div class=\"container\">\n<div class=\"header\"><h1>QI Research Pipeline</h1><p>Ethics Review Required</p></div>\n<div class=\"content\">\n<h2>Project: {{ $json.project_title }}</h2>\n<p><strong>Project ID:</strong> {{ $json.project_id }}</p>\n<div class=\"ethics\">\n<h3>Ethics Pathway</h3>\n<p><strong>Pathway:</strong> {{ $json.ethics?.ethics_pathway?.pathway || 'Pending determination' }}</p>\n<p><strong>Approval Body:</strong> {{ $json.ethics?.ethics_pathway?.approval_body || 'TBD' }}</p>\n<p><strong>Requires HREC:</strong> {{ $json.ethics?.ethics_pathway?.requires_hrec ? 'Yes' : 'No' }}</p>\n<p><strong>Estimated Timeline:</strong> {{ $json.ethics?.ethics_pathway?.estimated_timeline || 'TBD' }}</p>\n</div>\n<h3>Risk Assessment</h3>\n<p><strong>Risk Level:</strong> <span class=\"risk-{{ ($json.ethics?.risk_assessment?.level || 'low').toLowerCase() }}\">{{ $json.ethics?.risk_assessment?.level || 'Pending' }}</span></p>\n<p>{{ $json.ethics?.risk_assessment?.overall_justification || 'Risk justification pending' }}</p>\n<h3>Consent Requirements</h3>\n<p><strong>Type:</strong> {{ $json.ethics?.consent_requirements?.type || 'TBD' }}</p>\n<h3>Data Governance</h3>\n<p><strong>Storage:</strong> {{ $json.ethics?.data_governance?.storage_requirements || 'TBD' }}</p>\n<p><strong>Retention Period:</strong> {{ $json.ethics?.data_governance?.retention_period || 'TBD' }}</p>\n<p>Please review the ethics evaluation and governance requirements.</p>\n<p>\n<a href=\"{{ $env.WEBHOOK_URL }}/webhook/{{ $json.project_id }}/ethics-approved\" class=\"button\">Approve & Continue</a>\n<a href=\"{{ $env.WEBHOOK_URL }}/webhook/{{ $json.project_id }}/ethics-revision\" class=\"button secondary\">Request Revision</a>\n</p>\n</div>\n<div class=\"footer\"><p>QI Research Pipeline | Metro North Health</p></div>\n</div>\n</body>\n</html>",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "email-ethics-review",
+      "name": "Email: Ethics Review",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [4860, 240],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-qi-pipeline",
+          "name": "QI Pipeline SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "options": {
+          "webhookSuffix": "={{ $json.project_id }}/ethics-approved"
+        }
+      },
+      "id": "checkpoint-ethics",
+      "name": "Checkpoint: Ethics Review",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [5080, 240],
+      "webhookId": "ethics-checkpoint"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process ethics approval and prepare for document generation stage\nconst data = $input.first().json;\n\ndata.pipeline_state.checkpoints.ethics_approved = true;\ndata.pipeline_state.current_stage = 'DOCUMENTS';\ndata.pipeline_state.status = 'PROCESSING';\n\ndata.audit_log.push({\n  timestamp: new Date().toISOString(),\n  action: 'ETHICS_APPROVED',\n  actor: 'user',\n  details: {\n    approval_source: 'webhook',\n    checkpoint: 'ethics_review'\n  }\n});\n\nreturn [{ json: data }];"
+      },
+      "id": "process-ethics-approval",
+      "name": "Process Ethics Approval",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [5300, 240]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $workflow.id }}_documents"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "execute-documents",
+      "name": "Execute Document Stage",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [5520, 240]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Add audit log entry for document generation completion\nconst data = $input.first().json;\n\ndata.audit_log.push({\n  timestamp: new Date().toISOString(),\n  action: 'DOCUMENTS_STAGE_COMPLETED',\n  actor: 'document_agent',\n  details: {\n    documents_generated: data.documents?.generated?.length || 0,\n    document_types: data.documents?.generated?.map(d => d.type) || []\n  }\n});\n\ndata.pipeline_state.current_stage = 'FINAL_REVIEW';\ndata.pipeline_state.status = 'AWAITING_APPROVAL';\ndata.pipeline_state.completed_at = new Date().toISOString();\n\nreturn [{ json: data }];"
+      },
+      "id": "log-documents-complete",
+      "name": "Log Documents Complete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [5740, 240]
+    },
+    {
+      "parameters": {
+        "fromEmail": "qi-pipeline@metronorth.health.qld.gov.au",
+        "toEmail": "={{ $json.principal_investigator.email }}",
+        "subject": "QI Pipeline: Documents Ready for Final Review - {{ $json.project_title }}",
+        "emailType": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head><style>body{font-family:Arial,sans-serif;line-height:1.6;color:#333}.container{max-width:600px;margin:0 auto;padding:20px}.header{background:#0891b2;color:white;padding:20px;text-align:center}.content{padding:20px;background:#f9fafb}.button{display:inline-block;padding:12px 24px;background:#0891b2;color:white;text-decoration:none;border-radius:6px;margin:10px 5px}.button.secondary{background:#6b7280}.button.success{background:#059669}.footer{padding:20px;text-align:center;font-size:12px;color:#6b7280}.documents{background:#ecfeff;padding:15px;border-radius:8px;margin:15px 0}.doc-item{padding:8px;background:white;margin:5px 0;border-radius:4px;border-left:3px solid #0891b2}</style></head>\n<body>\n<div class=\"container\">\n<div class=\"header\"><h1>QI Research Pipeline</h1><p>Final Review - Documents Ready</p></div>\n<div class=\"content\">\n<h2>Project: {{ $json.project_title }}</h2>\n<p><strong>Project ID:</strong> {{ $json.project_id }}</p>\n<p><strong>Congratulations!</strong> All pipeline stages have been completed. Your documents are ready for final review and submission.</p>\n<div class=\"documents\">\n<h3>Generated Documents</h3>\n{{ $json.documents?.generated?.map(doc => '<div class=\"doc-item\"><strong>' + doc.type + '</strong><br/>' + doc.filename + ' (' + doc.status + ')</div>').join('') || '<p>Document list pending</p>' }}\n</div>\n<h3>Submission Checklist</h3>\n<p>Total Documents: {{ $json.documents?.metadata?.total_documents || 0 }}</p>\n<p>Please review all documents for accuracy and completeness before submission.</p>\n<p>\n<a href=\"{{ $env.WEBHOOK_URL }}/webhook/{{ $json.project_id }}/documents-approved\" class=\"button success\">Approve All Documents</a>\n<a href=\"{{ $env.WEBHOOK_URL }}/webhook/{{ $json.project_id }}/download-package\" class=\"button\">Download Package</a>\n<a href=\"{{ $env.WEBHOOK_URL }}/webhook/{{ $json.project_id }}/documents-revision\" class=\"button secondary\">Request Revision</a>\n</p>\n</div>\n<div class=\"footer\"><p>QI Research Pipeline | Metro North Health</p></div>\n</div>\n</body>\n</html>",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "email-final-review",
+      "name": "Email: Final Review",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [5960, 240],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-qi-pipeline",
+          "name": "QI Pipeline SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "options": {
+          "webhookSuffix": "={{ $json.project_id }}/documents-approved"
+        }
+      },
+      "id": "checkpoint-documents",
+      "name": "Checkpoint: Final Review",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [6180, 240],
+      "webhookId": "documents-checkpoint"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Finalize project after all approvals\nconst data = $input.first().json;\n\ndata.pipeline_state.checkpoints.documents_approved = true;\ndata.pipeline_state.current_stage = 'COMPLETED';\ndata.pipeline_state.status = 'COMPLETED';\ndata.pipeline_state.finalized_at = new Date().toISOString();\n\ndata.audit_log.push({\n  timestamp: new Date().toISOString(),\n  action: 'PROJECT_COMPLETED',\n  actor: 'user',\n  details: {\n    all_checkpoints_passed: true,\n    total_audit_entries: data.audit_log.length + 1,\n    pipeline_duration_ms: new Date(data.pipeline_state.finalized_at) - new Date(data.pipeline_state.started_at)\n  }\n});\n\n// Calculate summary statistics\nconst summaryStats = {\n  project_id: data.project_id,\n  project_title: data.project_title,\n  project_type: data.classification?.project_type,\n  ethics_pathway: data.ethics?.ethics_pathway?.pathway,\n  documents_generated: data.documents?.generated?.length || 0,\n  total_citations: data.research?.citations?.length || 0,\n  pipeline_completed: true,\n  completed_at: data.pipeline_state.finalized_at\n};\n\ndata.summary = summaryStats;\n\nreturn [{ json: data }];"
+      },
+      "id": "finalize-project",
+      "name": "Finalize Project",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [6400, 240]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": "public",
+        "table": "projects",
+        "columns": "status, research, methodology, ethics, documents, checkpoints, updated_at",
+        "options": {},
+        "dataMode": "autoMapInputData"
+      },
+      "id": "update-project-final",
+      "name": "Update Project Record",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [6620, 240],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-qi-pipeline",
+          "name": "QI Pipeline Database"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "audit_log",
+        "columns": "project_id, action, actor, details, timestamp",
+        "options": {},
+        "dataMode": "autoMapInputData"
+      },
+      "id": "persist-audit-log",
+      "name": "Persist Audit Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [6840, 240],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-qi-pipeline",
+          "name": "QI Pipeline Database"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "qi-pipeline@metronorth.health.qld.gov.au",
+        "toEmail": "={{ $json.principal_investigator.email }}",
+        "subject": "QI Pipeline Complete: {{ $json.project_title }}",
+        "emailType": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head><style>body{font-family:Arial,sans-serif;line-height:1.6;color:#333}.container{max-width:600px;margin:0 auto;padding:20px}.header{background:#059669;color:white;padding:20px;text-align:center}.content{padding:20px;background:#f9fafb}.button{display:inline-block;padding:12px 24px;background:#059669;color:white;text-decoration:none;border-radius:6px;margin:10px 5px}.footer{padding:20px;text-align:center;font-size:12px;color:#6b7280}.summary{background:#ecfdf5;padding:20px;border-radius:8px;margin:15px 0}.checkmark{color:#059669;font-size:24px}</style></head>\n<body>\n<div class=\"container\">\n<div class=\"header\"><h1>QI Research Pipeline</h1><p><span class=\"checkmark\">&#10003;</span> Project Complete</p></div>\n<div class=\"content\">\n<h2>Project: {{ $json.project_title }}</h2>\n<p><strong>Project ID:</strong> {{ $json.project_id }}</p>\n<div class=\"summary\">\n<h3>Pipeline Summary</h3>\n<p><strong>Project Type:</strong> {{ $json.summary?.project_type || $json.classification?.project_type }}</p>\n<p><strong>Ethics Pathway:</strong> {{ $json.summary?.ethics_pathway || $json.ethics?.ethics_pathway?.pathway }}</p>\n<p><strong>Documents Generated:</strong> {{ $json.summary?.documents_generated || $json.documents?.generated?.length || 0 }}</p>\n<p><strong>Citations:</strong> {{ $json.summary?.total_citations || $json.research?.citations?.length || 0 }}</p>\n<p><strong>Completed:</strong> {{ $json.summary?.completed_at || $json.pipeline_state?.finalized_at }}</p>\n</div>\n<h3>Next Steps</h3>\n<ol>\n<li>Download your complete submission package</li>\n<li>Review all documents one final time</li>\n<li>Submit to the appropriate approval body</li>\n<li>Track your submission status</li>\n</ol>\n<p>\n<a href=\"{{ $env.WEBHOOK_URL }}/download/{{ $json.project_id }}/submission-package.zip\" class=\"button\">Download Submission Package</a>\n</p>\n<p>Thank you for using the QI Research Pipeline. Good luck with your submission!</p>\n</div>\n<div class=\"footer\"><p>QI Research Pipeline | Metro North Health</p></div>\n</div>\n</body>\n</html>",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "email-completion",
+      "name": "Email: Completion",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [7060, 240],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-qi-pipeline",
+          "name": "QI Pipeline SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, project_id: $json.project_id, message: 'Project pipeline completed successfully', summary: $json.summary, download_url: $env.WEBHOOK_URL + '/download/' + $json.project_id + '/submission-package.zip' }) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "final-response",
+      "name": "Final Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [7280, 240]
+    },
+    {
+      "parameters": {
+        "errorMessage": "={{ $json.error?.message || 'An unexpected error occurred in the pipeline' }}"
+      },
+      "id": "error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 700]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Error handler - process and log errors\nconst error = $input.first().json;\nconst executionId = $execution.id;\nconst workflowId = $workflow.id;\n\nconst errorData = {\n  error_id: 'ERR-' + Date.now().toString(36).toUpperCase(),\n  execution_id: executionId,\n  workflow_id: workflowId,\n  timestamp: new Date().toISOString(),\n  error_type: error.error?.name || 'UnknownError',\n  error_message: error.error?.message || 'An unexpected error occurred',\n  error_stack: error.error?.stack || null,\n  node_name: error.node?.name || 'Unknown',\n  node_type: error.node?.type || 'Unknown',\n  project_id: error.data?.project_id || null,\n  project_title: error.data?.project_title || null,\n  current_stage: error.data?.pipeline_state?.current_stage || 'Unknown',\n  recovery_possible: determineRecoveryPossibility(error),\n  suggested_action: suggestRecoveryAction(error)\n};\n\nfunction determineRecoveryPossibility(err) {\n  const recoverableErrors = [\n    'ECONNREFUSED',\n    'ETIMEDOUT',\n    'ECONNRESET',\n    'RateLimitError',\n    'ServiceUnavailable'\n  ];\n  return recoverableErrors.some(e => \n    err.error?.message?.includes(e) || err.error?.code === e\n  );\n}\n\nfunction suggestRecoveryAction(err) {\n  if (err.error?.message?.includes('ECONNREFUSED')) {\n    return 'Check database/service connectivity and retry';\n  }\n  if (err.error?.message?.includes('RateLimit')) {\n    return 'Wait and retry after rate limit window';\n  }\n  if (err.error?.message?.includes('validation')) {\n    return 'Review input data and resubmit';\n  }\n  return 'Review error details and contact support if issue persists';\n}\n\nreturn [{ json: errorData }];"
+      },
+      "id": "process-error",
+      "name": "Process Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 700]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "audit_log",
+        "columns": "project_id, action, actor, details, timestamp",
+        "options": {},
+        "dataMode": "autoMapInputData"
+      },
+      "id": "log-error",
+      "name": "Log Error to DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [680, 700],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-qi-pipeline",
+          "name": "QI Pipeline Database"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "qi-pipeline@metronorth.health.qld.gov.au",
+        "toEmail": "={{ $json.project_id ? ($json.principal_investigator?.email || 'qi-pipeline-admin@metronorth.health.qld.gov.au') : 'qi-pipeline-admin@metronorth.health.qld.gov.au' }}",
+        "subject": "QI Pipeline Error: {{ $json.project_title || 'Pipeline Error' }} - {{ $json.error_id }}",
+        "emailType": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head><style>body{font-family:Arial,sans-serif;line-height:1.6;color:#333}.container{max-width:600px;margin:0 auto;padding:20px}.header{background:#dc2626;color:white;padding:20px;text-align:center}.content{padding:20px;background:#f9fafb}.button{display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;margin:10px 5px}.footer{padding:20px;text-align:center;font-size:12px;color:#6b7280}.error-details{background:#fef2f2;padding:15px;border-radius:8px;margin:15px 0;border-left:4px solid #dc2626}.code{background:#1f2937;color:#f9fafb;padding:10px;border-radius:4px;font-family:monospace;font-size:12px;overflow-x:auto}</style></head>\n<body>\n<div class=\"container\">\n<div class=\"header\"><h1>QI Research Pipeline</h1><p>Error Notification</p></div>\n<div class=\"content\">\n<h2>An Error Has Occurred</h2>\n<div class=\"error-details\">\n<p><strong>Error ID:</strong> {{ $json.error_id }}</p>\n<p><strong>Project ID:</strong> {{ $json.project_id || 'N/A' }}</p>\n<p><strong>Stage:</strong> {{ $json.current_stage }}</p>\n<p><strong>Node:</strong> {{ $json.node_name }} ({{ $json.node_type }})</p>\n<p><strong>Error Type:</strong> {{ $json.error_type }}</p>\n<p><strong>Message:</strong> {{ $json.error_message }}</p>\n</div>\n<h3>Recovery Information</h3>\n<p><strong>Recovery Possible:</strong> {{ $json.recovery_possible ? 'Yes' : 'Manual intervention may be required' }}</p>\n<p><strong>Suggested Action:</strong> {{ $json.suggested_action }}</p>\n<h3>Technical Details</h3>\n<div class=\"code\">Execution ID: {{ $json.execution_id }}<br/>Workflow ID: {{ $json.workflow_id }}<br/>Timestamp: {{ $json.timestamp }}</div>\n<p>\n<a href=\"{{ $env.WEBHOOK_URL }}/webhook/{{ $json.project_id }}/retry\" class=\"button\">Retry Pipeline</a>\n</p>\n</div>\n<div class=\"footer\"><p>QI Research Pipeline | Metro North Health</p></div>\n</div>\n</body>\n</html>",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "email-error",
+      "name": "Email: Error Notification",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [900, 700],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-qi-pipeline",
+          "name": "QI Pipeline SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "recovery-check",
+              "leftValue": "={{ $json.recovery_possible }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "recovery-router",
+      "name": "Recovery Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 700]
+    },
+    {
+      "parameters": {
+        "amount": 30,
+        "unit": "seconds"
+      },
+      "id": "wait-before-retry",
+      "name": "Wait Before Retry",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1340, 620]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.WEBHOOK_URL }}/webhook/qi-research-intake",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.original_intake_data) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "retry-request",
+      "name": "Retry Pipeline",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 620]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error_id: $json.error_id, message: 'Pipeline encountered an error that requires manual intervention', error: $json.error_message, suggested_action: $json.suggested_action, support_contact: 'qi-pipeline-admin@metronorth.health.qld.gov.au' }) }}",
+        "options": {
+          "responseCode": 500,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "error-response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1340, 780]
+    },
+    {
+      "parameters": {
+        "path": "qi-pipeline-status",
+        "httpMethod": "GET",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "status-webhook",
+      "name": "Status Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 960],
+      "webhookId": "qi-pipeline-status-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": "public",
+        "table": "projects",
+        "returnAll": false,
+        "limit": 1,
+        "where": {
+          "values": [
+            {
+              "column": "id",
+              "value": "={{ $json.query.project_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-project-status",
+      "name": "Get Project Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [460, 960],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-qi-pipeline",
+          "name": "QI Pipeline Database"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format status response\nconst project = $input.first().json;\n\nif (!project || !project.id) {\n  return [{\n    json: {\n      success: false,\n      message: 'Project not found',\n      project_id: $('Status Webhook').first().json.query?.project_id || 'unknown'\n    }\n  }];\n}\n\nconst statusResponse = {\n  success: true,\n  project_id: project.id,\n  project_title: project.intake?.project_title,\n  status: project.status,\n  current_stage: project.checkpoints ? \n    Object.entries(project.checkpoints)\n      .filter(([k, v]) => !v)\n      .map(([k]) => k.replace('_approved', '').toUpperCase())[0] || 'COMPLETED' \n    : 'UNKNOWN',\n  checkpoints: project.checkpoints,\n  classification: project.classification?.project_type,\n  created_at: project.created_at,\n  updated_at: project.updated_at,\n  has_research: !!project.research,\n  has_methodology: !!project.methodology,\n  has_ethics: !!project.ethics,\n  has_documents: !!project.documents,\n  documents_count: project.documents?.generated?.length || 0\n};\n\nreturn [{ json: statusResponse }];"
+      },
+      "id": "format-status",
+      "name": "Format Status Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 960]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Initial response after validation passes - return project ID immediately\nconst data = $input.first().json;\n\n// Send initial acceptance response while pipeline continues\nconst acceptanceResponse = {\n  success: true,\n  message: 'Project intake accepted and processing started',\n  project_id: data.project_id,\n  status: 'PROCESSING',\n  warnings: data.validation.warnings,\n  status_url: $env.WEBHOOK_URL + '/webhook/qi-pipeline-status?project_id=' + data.project_id,\n  estimated_stages: [\n    { stage: 'INTAKE', status: 'in_progress' },\n    { stage: 'RESEARCH', status: 'pending' },\n    { stage: 'METHODOLOGY', status: 'pending' },\n    { stage: 'ETHICS', status: 'pending' },\n    { stage: 'DOCUMENTS', status: 'pending' }\n  ],\n  next_action: 'You will receive an email notification when intake review is ready'\n};\n\n// Store response for webhook\n$execution.customData.set('initialResponse', JSON.stringify(acceptanceResponse));\n\nreturn [{ json: data }];"
+      },
+      "id": "prepare-initial-response",
+      "name": "Prepare Initial Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $execution.customData.get('initialResponse') || JSON.stringify({ success: true, project_id: $json.project_id, message: 'Processing started' }) }}",
+        "options": {
+          "responseCode": 202,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "initial-response",
+      "name": "Initial Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 80]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Validation Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validation Router": {
+      "main": [
+        [
+          {
+            "node": "Prepare Initial Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Validation Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Initial Response": {
+      "main": [
+        [
+          {
+            "node": "Initial Response",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Store Project Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Project Record": {
+      "main": [
+        [
+          {
+            "node": "Execute Intake Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Intake Stage": {
+      "main": [
+        [
+          {
+            "node": "Log Intake Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Intake Complete": {
+      "main": [
+        [
+          {
+            "node": "Email: Intake Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email: Intake Review": {
+      "main": [
+        [
+          {
+            "node": "Checkpoint: Intake Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Checkpoint: Intake Review": {
+      "main": [
+        [
+          {
+            "node": "Process Intake Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Intake Approval": {
+      "main": [
+        [
+          {
+            "node": "Execute Research Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Research Stage": {
+      "main": [
+        [
+          {
+            "node": "Log Research Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Research Complete": {
+      "main": [
+        [
+          {
+            "node": "Email: Research Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email: Research Review": {
+      "main": [
+        [
+          {
+            "node": "Checkpoint: Research Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Checkpoint: Research Review": {
+      "main": [
+        [
+          {
+            "node": "Process Research Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Research Approval": {
+      "main": [
+        [
+          {
+            "node": "Execute Methodology Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Methodology Stage": {
+      "main": [
+        [
+          {
+            "node": "Log Methodology Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Methodology Complete": {
+      "main": [
+        [
+          {
+            "node": "Email: Methodology Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email: Methodology Review": {
+      "main": [
+        [
+          {
+            "node": "Checkpoint: Methods Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Checkpoint: Methods Review": {
+      "main": [
+        [
+          {
+            "node": "Process Methodology Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Methodology Approval": {
+      "main": [
+        [
+          {
+            "node": "Execute Ethics Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Ethics Stage": {
+      "main": [
+        [
+          {
+            "node": "Log Ethics Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Ethics Complete": {
+      "main": [
+        [
+          {
+            "node": "Email: Ethics Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email: Ethics Review": {
+      "main": [
+        [
+          {
+            "node": "Checkpoint: Ethics Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Checkpoint: Ethics Review": {
+      "main": [
+        [
+          {
+            "node": "Process Ethics Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Ethics Approval": {
+      "main": [
+        [
+          {
+            "node": "Execute Document Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Document Stage": {
+      "main": [
+        [
+          {
+            "node": "Log Documents Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Documents Complete": {
+      "main": [
+        [
+          {
+            "node": "Email: Final Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email: Final Review": {
+      "main": [
+        [
+          {
+            "node": "Checkpoint: Final Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Checkpoint: Final Review": {
+      "main": [
+        [
+          {
+            "node": "Finalize Project",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Project": {
+      "main": [
+        [
+          {
+            "node": "Update Project Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Project Record": {
+      "main": [
+        [
+          {
+            "node": "Persist Audit Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Persist Audit Log": {
+      "main": [
+        [
+          {
+            "node": "Email: Completion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email: Completion": {
+      "main": [
+        [
+          {
+            "node": "Final Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Process Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Error": {
+      "main": [
+        [
+          {
+            "node": "Log Error to DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error to DB": {
+      "main": [
+        [
+          {
+            "node": "Email: Error Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email: Error Notification": {
+      "main": [
+        [
+          {
+            "node": "Recovery Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recovery Router": {
+      "main": [
+        [
+          {
+            "node": "Wait Before Retry",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Before Retry": {
+      "main": [
+        [
+          {
+            "node": "Retry Pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get Project Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Project Status": {
+      "main": [
+        [
+          {
+            "node": "Format Status Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "executionTimeout": 3600,
+    "timezone": "Australia/Brisbane"
+  },
+  "staticData": null,
+  "meta": {
+    "templateId": "qi-research-pipeline-master",
+    "templateCredsSetupCompleted": false,
+    "instanceId": "qi-pipeline-instance"
+  },
+  "pinData": {},
+  "versionId": "1.0.0",
+  "triggerCount": 2,
+  "tags": [
+    {
+      "id": "qi-research",
+      "name": "QI Research Pipeline"
+    },
+    {
+      "id": "master-workflow",
+      "name": "Master Workflow"
+    },
+    {
+      "id": "healthcare",
+      "name": "Healthcare"
+    }
+  ],
+  "id": "qi-research-pipeline-master",
+  "active": false,
+  "createdAt": "2026-01-27T00:00:00.000Z",
+  "updatedAt": "2026-01-27T00:00:00.000Z"
+}

@@ -1,0 +1,563 @@
+{
+  "name": "QI-Research Pipeline: Document Generation Stage",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "documents-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract all project data for document generation\nconst input = $input.first().json;\n\nif (!input.project || !input.research || !input.methodology || !input.ethics) {\n  throw new Error('Missing required data from previous stages');\n}\n\nreturn [{\n  json: {\n    project_id: input.project.id,\n    project: input.project,\n    research: input.research,\n    methodology: input.methodology,\n    ethics: input.ethics\n  }\n}];"
+      },
+      "id": "extract-context",
+      "name": "Extract Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Determine required documents based on ethics pathway and grant target\nconst input = $input.first().json;\n\nconst pathway = input.ethics.ethics_pathway.pathway;\nconst grantTarget = input.project.intake.grant_target;\nconst projectType = input.project.classification.project_type;\nconst requiresPicf = input.ethics.consent_requirements.picf_required;\n\nconst documents = [];\n\n// Core documents based on project type\nif (projectType === 'QI') {\n  documents.push({\n    type: 'QI_PROJECT_PLAN',\n    template_name: 'mnh-qi-template.docx',\n    template_path: '/templates/protocols/mnh-qi-template.docx',\n    output_filename: `QI_Project_Plan_${input.project_id}.docx`,\n    required: true,\n    priority: 1\n  });\n} else {\n  // Research or Hybrid projects\n  documents.push({\n    type: 'RESEARCH_PROTOCOL',\n    template_name: 'mnh-protocol-template.docx',\n    template_path: '/templates/protocols/mnh-protocol-template.docx',\n    output_filename: `Research_Protocol_${input.project_id}.docx`,\n    required: true,\n    priority: 1\n  });\n}\n\n// Ethics pathway specific documents\nif (pathway === 'FULL_HREC_REVIEW' || pathway === 'HYBRID_REVIEW') {\n  documents.push({\n    type: 'HREC_COVER_LETTER',\n    template_name: 'hrec-coverletter.docx',\n    template_path: '/templates/ethics/hrec-coverletter.docx',\n    output_filename: `HREC_Cover_Letter_${input.project_id}.docx`,\n    required: true,\n    priority: 2\n  });\n}\n\nif (requiresPicf) {\n  documents.push({\n    type: 'PICF',\n    template_name: 'picf-template.docx',\n    template_path: '/templates/ethics/picf-template.docx',\n    output_filename: `PICF_${input.project_id}.docx`,\n    required: true,\n    priority: 2\n  });\n}\n\n// Grant application documents\nif (grantTarget) {\n  const grantTemplates = {\n    EMF_JUMPSTART: 'emf-application-jumpstart.docx',\n    EMF_LEADING_EDGE: 'emf-application-leading-edge.docx',\n    EMF_TRANSLATED: 'emf-application-leading-edge.docx'\n  };\n  \n  if (grantTemplates[grantTarget]) {\n    documents.push({\n      type: 'GRANT_APPLICATION',\n      template_name: grantTemplates[grantTarget],\n      template_path: `/templates/grants/${grantTemplates[grantTarget]}`,\n      output_filename: `Grant_Application_${grantTarget}_${input.project_id}.docx`,\n      required: true,\n      priority: 1,\n      grant_type: grantTarget\n    });\n  }\n}\n\n// Data Management Plan (always recommended for research)\nif (projectType !== 'QI') {\n  documents.push({\n    type: 'DATA_MANAGEMENT_PLAN',\n    template_name: 'dmp-template.docx',\n    template_path: '/templates/governance/dmp-template.docx',\n    output_filename: `Data_Management_Plan_${input.project_id}.docx`,\n    required: true,\n    priority: 3\n  });\n}\n\n// Sort by priority\ndocuments.sort((a, b) => a.priority - b.priority);\n\nreturn [{\n  json: {\n    ...input,\n    required_documents: documents,\n    total_documents: documents.length\n  }\n}];"
+      },
+      "id": "determine-documents",
+      "name": "Determine Required Documents",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "split-documents",
+      "name": "Split by Document Type",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [910, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare document-specific context for generation\nconst batch = $input.first().json;\nconst allData = $('Determine Required Documents').first().json;\n\n// Get current document from the batch context\nconst currentIndex = batch.currentIndex || 0;\nconst currentDoc = allData.required_documents[currentIndex];\n\nif (!currentDoc) {\n  throw new Error('No document to process in current batch');\n}\n\nreturn [{\n  json: {\n    document: currentDoc,\n    project: allData.project,\n    research: allData.research,\n    methodology: allData.methodology,\n    ethics: allData.ethics,\n    project_id: allData.project_id\n  }\n}];"
+      },
+      "id": "prepare-doc-context",
+      "name": "Prepare Document Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1130, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "maxTokens": 4096,
+          "temperature": 0.3
+        },
+        "messages": {
+          "messageValues": [
+            {
+              "message": "={{ `You are an expert scientific writer generating document section outlines. Create a detailed outline for a ${$json.document.type} document.\n\n## Document Type\n${$json.document.type}\n\n## Project Information\nTitle: ${$json.project.intake.project_title}\nType: ${$json.project.classification.project_type}\nPI: ${$json.project.intake.principal_investigator.name}\nInstitution: ${$json.project.intake.principal_investigator.institution}\n\n## Clinical Problem\n${$json.project.intake.clinical_problem}\n\n## Study Design\n${$json.methodology.study_design.type}\nReporting Guideline: ${$json.methodology.study_design.reporting_guideline}\n\n## Key Evidence\nEvidence Strength: ${$json.research.evidence_strength || 'Not assessed'}\nKey Themes: ${$json.research.key_themes ? $json.research.key_themes.join(', ') : 'Not specified'}\n\n## Methodology Summary\nParticipants: ${$json.methodology.participants.sample_size?.target || 'Not specified'} participants\nPrimary Outcome: ${$json.methodology.outcomes.primary.name}\nTimeline: ${$json.methodology.timeline.total_duration}\n\n## Ethics Summary\nPathway: ${$json.ethics.ethics_pathway.pathway}\nRisk Level: ${$json.ethics.risk_assessment.level}\nConsent Type: ${$json.ethics.consent_requirements.consent_type}\n\n## Task\nGenerate a detailed section-by-section outline for this document. Each section should have:\n1. Section title\n2. Key points to cover (as bullet points)\n3. Approximate word count target\n4. Source data to draw from\n\nDocument-specific requirements:\n${$json.document.type === 'RESEARCH_PROTOCOL' ? `\n- Follow SPIRIT guidelines for protocol structure\n- Include: Title, Synopsis, Introduction, Background, Objectives, Methods, Participants, Outcomes, Procedures, Data Management, Ethics, Dissemination, References, Timeline` : ''}\n${$json.document.type === 'QI_PROJECT_PLAN' ? `\n- Follow SQUIRE guidelines\n- Include: Problem Statement, Aims, Context, Intervention, Study of Intervention, Measures, Analysis, Ethical Considerations, Results Plan` : ''}\n${$json.document.type === 'GRANT_APPLICATION' ? `\n- Follow EMF application structure\n- Include: Plain Language Summary, Scientific Abstract, Background & Rationale, Aims, Methods, Innovation & Impact, Translation Plan, Team, Budget Justification` : ''}\n${$json.document.type === 'PICF' ? `\n- Plain language (Year 8 reading level)\n- Include: Invitation, Purpose, Procedures, Risks, Benefits, Alternatives, Confidentiality, Voluntary Participation, Contact Information, Consent Statement` : ''}\n${$json.document.type === 'HREC_COVER_LETTER' ? `\n- Address key ethical considerations proactively\n- Include: Introduction, Study Summary, Ethical Considerations, Risk Assessment, Consent Approach, Conclusion` : ''}\n${$json.document.type === 'DATA_MANAGEMENT_PLAN' ? `\n- Follow institutional DMP template structure\n- Include: Data Description, Collection Methods, Storage, Security, Sharing, Retention, Disposal` : ''}\n\nRespond ONLY with valid JSON:\n{\n  \"document_type\": \"${$json.document.type}\",\n  \"title\": \"document title\",\n  \"sections\": [\n    {\n      \"section_number\": \"1\",\n      \"section_title\": \"Section Name\",\n      \"key_points\": [\"point 1\", \"point 2\", \"point 3\"],\n      \"word_target\": 250,\n      \"source_data\": [\"project.intake\", \"research.evidence_synthesis\"],\n      \"special_instructions\": \"any specific formatting or content requirements\"\n    }\n  ],\n  \"total_word_target\": 5000,\n  \"style_guide\": \"formal/plain_language/scientific\",\n  \"citation_style\": \"Vancouver/APA/none\"\n}` }}"
+            }
+          ]
+        }
+      },
+      "id": "generate-outline",
+      "name": "LLM: Generate Section Outlines",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [1350, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credentials",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse outline response\nconst input = $input.first().json;\nconst llmResponse = $('LLM: Generate Section Outlines').first().json.message.content;\n\nlet outline;\ntry {\n  let jsonStr = llmResponse;\n  const jsonMatch = llmResponse.match(/```json\\n?([\\s\\S]*?)\\n?```/);\n  if (jsonMatch) {\n    jsonStr = jsonMatch[1];\n  }\n  outline = JSON.parse(jsonStr);\n} catch (e) {\n  throw new Error(`Failed to parse outline: ${e.message}`);\n}\n\nreturn [{\n  json: {\n    ...input,\n    outline: outline\n  }\n}];"
+      },
+      "id": "parse-outline",
+      "name": "Parse Outline",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1570, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-20250514",
+        "options": {
+          "maxTokens": 8000,
+          "temperature": 0.4
+        },
+        "messages": {
+          "messageValues": [
+            {
+              "message": "={{ `You are an expert scientific and medical writer. Convert the following document outline into polished prose.\n\n## Document: ${$json.outline.title}\n## Style: ${$json.outline.style_guide}\n## Citation Style: ${$json.outline.citation_style}\n## Total Word Target: ${$json.outline.total_word_target}\n\n## Project Context\nTitle: ${$json.project.intake.project_title}\nClinical Problem: ${$json.project.intake.clinical_problem}\nTarget Population: ${$json.project.intake.target_population}\nSetting: ${$json.project.intake.setting}\n\n## Evidence Base\n${$json.research.evidence_synthesis || 'No evidence synthesis available'}\n\n## Methodology\nStudy Design: ${$json.methodology.study_design.type}\nSample Size: ${$json.methodology.participants.sample_size?.target || 'Not specified'}\nPrimary Outcome: ${$json.methodology.outcomes.primary.name} - ${$json.methodology.outcomes.primary.definition}\nSecondary Outcomes: ${$json.methodology.outcomes.secondary.map(o => o.name).join(', ')}\nAnalysis: ${$json.methodology.analysis_plan.primary_analysis.statistical_method}\nTimeline: ${$json.methodology.timeline.total_duration}\n\n## Ethics\nRisk Level: ${$json.ethics.risk_assessment.level}\nConsent: ${$json.ethics.consent_requirements.consent_type}\nData Governance: ${$json.ethics.data_governance.storage.platform}\n\n## Available Citations\n${$json.research.citations ? $json.research.citations.slice(0, 15).join('\\n') : 'No citations available'}\n\n## Outline to Convert\n${JSON.stringify($json.outline.sections, null, 2)}\n\n## Instructions\n1. Convert each section outline into flowing prose paragraphs\n2. NO bullet points in the final text - use proper paragraphs\n3. Use ${$json.outline.citation_style} citation style where appropriate [1], [2]\n4. Match the ${$json.outline.style_guide} style\n5. Stay within word targets for each section\n6. Ensure logical flow and transitions between sections\n7. Use specific data from the project context\n8. Be precise and operational in methodology descriptions\n\nRespond ONLY with valid JSON:\n{\n  \"document_title\": \"${$json.outline.title}\",\n  \"sections\": [\n    {\n      \"section_number\": \"1\",\n      \"section_title\": \"Section Name\",\n      \"content\": \"Full prose content for this section...\",\n      \"word_count\": 250\n    }\n  ],\n  \"total_word_count\": 5000,\n  \"references_used\": [1, 2, 3]\n}` }}"
+            }
+          ]
+        }
+      },
+      "id": "convert-prose",
+      "name": "LLM: Convert to Prose",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [1790, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credentials",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse prose content and assemble document\nconst input = $input.first().json;\nconst llmResponse = $('LLM: Convert to Prose').first().json.message.content;\n\nlet proseContent;\ntry {\n  let jsonStr = llmResponse;\n  const jsonMatch = llmResponse.match(/```json\\n?([\\s\\S]*?)\\n?```/);\n  if (jsonMatch) {\n    jsonStr = jsonMatch[1];\n  }\n  proseContent = JSON.parse(jsonStr);\n} catch (e) {\n  throw new Error(`Failed to parse prose content: ${e.message}`);\n}\n\nreturn [{\n  json: {\n    ...input,\n    prose_content: proseContent\n  }\n}];"
+      },
+      "id": "parse-prose",
+      "name": "Parse Prose Content",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2010, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Populate template with generated content\n// In production, this would use docx-js or similar library\n// Here we prepare the data structure for template population\n\nconst input = $input.first().json;\n\n// Build document structure for template population\nconst documentContent = {\n  // Metadata\n  metadata: {\n    document_type: input.document.type,\n    project_id: input.project_id,\n    version: '1.0',\n    generated_at: new Date().toISOString(),\n    template_used: input.document.template_name\n  },\n  \n  // Header fields\n  header: {\n    title: input.project.intake.project_title,\n    short_title: input.project.intake.project_title.substring(0, 50),\n    protocol_number: input.project_id,\n    version_number: '1.0',\n    version_date: new Date().toISOString().split('T')[0]\n  },\n  \n  // Investigator information\n  investigators: {\n    principal_investigator: {\n      name: input.project.intake.principal_investigator.name,\n      title: input.project.intake.principal_investigator.title,\n      institution: input.project.intake.principal_investigator.institution,\n      department: input.project.intake.principal_investigator.department,\n      email: input.project.intake.principal_investigator.email\n    },\n    co_investigators: input.project.intake.co_investigators || []\n  },\n  \n  // Synopsis/Summary table\n  synopsis: {\n    study_title: input.project.intake.project_title,\n    study_design: input.methodology.study_design.type,\n    primary_outcome: input.methodology.outcomes.primary.name,\n    sample_size: input.methodology.participants.sample_size?.target || 'N/A',\n    study_duration: input.methodology.timeline.total_duration,\n    setting: input.project.intake.setting\n  },\n  \n  // Main content sections\n  sections: input.prose_content.sections.map(section => ({\n    number: section.section_number,\n    title: section.section_title,\n    content: section.content,\n    word_count: section.word_count\n  })),\n  \n  // References\n  references: input.research.citations || [],\n  \n  // Timeline figure data\n  timeline: input.methodology.timeline,\n  \n  // Total word count\n  total_word_count: input.prose_content.total_word_count\n};\n\n// For actual template population, this would call docx-js\n// Here we output the structured content\n\nreturn [{\n  json: {\n    document: input.document,\n    document_content: documentContent,\n    project_id: input.project_id,\n    output_filename: input.document.output_filename\n  }\n}];"
+      },
+      "id": "populate-template",
+      "name": "Populate Template",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2230, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Simulate document generation (in production, this would create actual DOCX)\n// For now, we create a JSON representation that could be converted to DOCX\n\nconst input = $input.first().json;\n\n// Build a markdown representation of the document for now\nlet markdownContent = `# ${input.document_content.header.title}\\n\\n`;\nmarkdownContent += `**Protocol Number:** ${input.document_content.header.protocol_number}\\n`;\nmarkdownContent += `**Version:** ${input.document_content.header.version_number}\\n`;\nmarkdownContent += `**Date:** ${input.document_content.header.version_date}\\n\\n`;\n\nmarkdownContent += `## Principal Investigator\\n`;\nmarkdownContent += `${input.document_content.investigators.principal_investigator.name}\\n`;\nmarkdownContent += `${input.document_content.investigators.principal_investigator.institution}\\n\\n`;\n\nmarkdownContent += `## Synopsis\\n`;\nmarkdownContent += `| Field | Value |\\n|-------|-------|\\n`;\nmarkdownContent += `| Study Design | ${input.document_content.synopsis.study_design} |\\n`;\nmarkdownContent += `| Primary Outcome | ${input.document_content.synopsis.primary_outcome} |\\n`;\nmarkdownContent += `| Sample Size | ${input.document_content.synopsis.sample_size} |\\n`;\nmarkdownContent += `| Duration | ${input.document_content.synopsis.study_duration} |\\n\\n`;\n\nfor (const section of input.document_content.sections) {\n  markdownContent += `## ${section.number}. ${section.title}\\n\\n`;\n  markdownContent += `${section.content}\\n\\n`;\n}\n\nif (input.document_content.references.length > 0) {\n  markdownContent += `## References\\n\\n`;\n  for (const ref of input.document_content.references) {\n    markdownContent += `${ref}\\n\\n`;\n  }\n}\n\n// Create document record\nconst generatedDocument = {\n  type: input.document.type,\n  filename: input.output_filename,\n  path: `/output/${input.project_id}/${input.output_filename}`,\n  status: 'DRAFT',\n  version: '1.0',\n  generated_at: new Date().toISOString(),\n  word_count: input.document_content.total_word_count,\n  sections_count: input.document_content.sections.length,\n  content_preview: markdownContent.substring(0, 500) + '...',\n  full_content: markdownContent,\n  structured_content: input.document_content\n};\n\nreturn [{\n  json: {\n    project_id: input.project_id,\n    generated_document: generatedDocument\n  }\n}];"
+      },
+      "id": "save-document",
+      "name": "Save Document",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2450, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "documents",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "project_id": "={{ $json.project_id }}",
+            "document_type": "={{ $json.generated_document.type }}",
+            "filename": "={{ $json.generated_document.filename }}",
+            "file_path": "={{ $json.generated_document.path }}",
+            "version": "={{ $json.generated_document.version }}",
+            "status": "={{ $json.generated_document.status }}",
+            "created_at": "={{ $json.generated_document.generated_at }}",
+            "metadata": "={{ JSON.stringify({ word_count: $json.generated_document.word_count, sections_count: $json.generated_document.sections_count }) }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "store-document-metadata",
+      "name": "Store Document Metadata",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [2670, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "QI Pipeline Database"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "options": {}
+      },
+      "id": "merge-documents",
+      "name": "Merge Documents",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [2890, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if there are more documents to process\nconst allData = $('Determine Required Documents').first().json;\nconst processed = $input.all().map(item => item.json.generated_document);\n\nif (processed.length < allData.required_documents.length) {\n  // More documents to process - continue loop\n  return [{\n    json: {\n      continue: true,\n      processed_count: processed.length,\n      total_count: allData.required_documents.length,\n      processed_documents: processed\n    }\n  }];\n} else {\n  // All documents processed\n  return [{\n    json: {\n      continue: false,\n      processed_count: processed.length,\n      total_count: allData.required_documents.length,\n      processed_documents: processed,\n      all_data: allData\n    }\n  }];\n}"
+      },
+      "id": "check-complete",
+      "name": "Check All Documents Complete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3110, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "continue-loop",
+              "leftValue": "={{ $json.continue }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "loop-check",
+      "name": "More Documents?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [3330, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Create submission package with all documents\nconst input = $input.first().json;\n\n// Build submission package metadata\nconst submissionPackage = {\n  package_id: `PKG-${input.all_data.project_id}-${Date.now().toString(36)}`,\n  project_id: input.all_data.project_id,\n  created_at: new Date().toISOString(),\n  documents: input.processed_documents.map(doc => ({\n    type: doc.type,\n    filename: doc.filename,\n    path: doc.path,\n    status: doc.status,\n    word_count: doc.word_count\n  })),\n  total_documents: input.processed_documents.length,\n  total_word_count: input.processed_documents.reduce((sum, doc) => sum + (doc.word_count || 0), 0),\n  submission_checklist: generateSubmissionChecklist(input.all_data.ethics),\n  package_status: 'DRAFT'\n};\n\nfunction generateSubmissionChecklist(ethics) {\n  const checklist = [];\n  \n  // Add document-related items\n  checklist.push({\n    item: 'All required documents generated',\n    status: 'complete',\n    notes: `${input.processed_documents.length} documents generated`\n  });\n  \n  checklist.push({\n    item: 'Documents reviewed by PI',\n    status: 'pending',\n    notes: 'Requires PI review and approval'\n  });\n  \n  checklist.push({\n    item: 'Word limits verified',\n    status: 'pending',\n    notes: 'Check against submission requirements'\n  });\n  \n  // Ethics-related items from governance checklist\n  if (ethics && ethics.governance_checklist) {\n    for (const item of ethics.governance_checklist.filter(i => i.required)) {\n      checklist.push({\n        item: item.item,\n        status: item.status,\n        notes: item.notes\n      });\n    }\n  }\n  \n  return checklist;\n}\n\nreturn [{\n  json: {\n    project_id: input.all_data.project_id,\n    project: input.all_data.project,\n    research: input.all_data.research,\n    methodology: input.all_data.methodology,\n    ethics: input.all_data.ethics,\n    generated_documents: input.processed_documents,\n    submission_package: submissionPackage\n  }\n}];"
+      },
+      "id": "create-package",
+      "name": "Create Submission Package",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3550, 400]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": "public",
+        "table": "projects",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "documents": "={{ JSON.stringify({ generated: $json.generated_documents, submission_package: $json.submission_package }) }}",
+            "status": "DOCUMENTS_COMPLETE",
+            "updated_at": "={{ new Date().toISOString() }}"
+          }
+        },
+        "where": {
+          "values": [
+            {
+              "column": "id",
+              "value": "={{ $json.project_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "update-project",
+      "name": "Update Project Record",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [3770, 400],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "QI Pipeline Database"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "audit_log",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "project_id": "={{ $json.project_id }}",
+            "timestamp": "={{ new Date().toISOString() }}",
+            "action": "DOCUMENTS_COMPLETE",
+            "actor": "documents_workflow",
+            "details": "={{ JSON.stringify({ documents_generated: $json.generated_documents.length, package_id: $json.submission_package.package_id }) }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "log-audit",
+      "name": "Log Audit Entry",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [3990, 400],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "QI Pipeline Database"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare final output for return to master workflow\nconst packageOutput = $('Create Submission Package').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    project_id: packageOutput.project_id,\n    status: 'DOCUMENTS_COMPLETE',\n    \n    // Document summary\n    document_summary: {\n      total_documents: packageOutput.submission_package.total_documents,\n      total_word_count: packageOutput.submission_package.total_word_count,\n      documents: packageOutput.generated_documents.map(d => ({\n        type: d.type,\n        filename: d.filename,\n        status: d.status,\n        word_count: d.word_count\n      })),\n      package_id: packageOutput.submission_package.package_id\n    },\n    \n    // Submission package\n    submission_package: packageOutput.submission_package,\n    \n    // Generated documents\n    generated_documents: packageOutput.generated_documents,\n    \n    // Full project data\n    project: packageOutput.project,\n    research: packageOutput.research,\n    methodology: packageOutput.methodology,\n    ethics: packageOutput.ethics,\n    \n    // Workflow metadata\n    workflow_metadata: {\n      stage: 'documents',\n      completed_at: new Date().toISOString(),\n      next_stage: 'final_review',\n      requires_checkpoint: true,\n      checkpoint_items: [\n        'Review all generated documents',\n        'Verify consistency across documents',\n        'Check word limits compliance',\n        'Validate formatting and branding',\n        'Approve for submission'\n      ]\n    }\n  }\n}];"
+      },
+      "id": "prepare-output",
+      "name": "Prepare Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4210, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop back to process next document\nconst input = $input.first().json;\nconst allData = $('Determine Required Documents').first().json;\n\n// Set up for next iteration\nreturn [{\n  json: {\n    ...allData,\n    currentIndex: input.processed_count\n  }\n}];"
+      },
+      "id": "loop-back",
+      "name": "Prepare Next Document",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3550, 200]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Context": {
+      "main": [
+        [
+          {
+            "node": "Determine Required Documents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determine Required Documents": {
+      "main": [
+        [
+          {
+            "node": "Split by Document Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split by Document Type": {
+      "main": [
+        [
+          {
+            "node": "Prepare Document Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Document Context": {
+      "main": [
+        [
+          {
+            "node": "LLM: Generate Section Outlines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM: Generate Section Outlines": {
+      "main": [
+        [
+          {
+            "node": "Parse Outline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Outline": {
+      "main": [
+        [
+          {
+            "node": "LLM: Convert to Prose",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM: Convert to Prose": {
+      "main": [
+        [
+          {
+            "node": "Parse Prose Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Prose Content": {
+      "main": [
+        [
+          {
+            "node": "Populate Template",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Populate Template": {
+      "main": [
+        [
+          {
+            "node": "Save Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Document": {
+      "main": [
+        [
+          {
+            "node": "Store Document Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Document Metadata": {
+      "main": [
+        [
+          {
+            "node": "Merge Documents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Documents": {
+      "main": [
+        [
+          {
+            "node": "Check All Documents Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check All Documents Complete": {
+      "main": [
+        [
+          {
+            "node": "More Documents?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "More Documents?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Next Document",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Submission Package",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Next Document": {
+      "main": [
+        [
+          {
+            "node": "Split by Document Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Submission Package": {
+      "main": [
+        [
+          {
+            "node": "Update Project Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Project Record": {
+      "main": [
+        [
+          {
+            "node": "Log Audit Entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Audit Entry": {
+      "main": [
+        [
+          {
+            "node": "Prepare Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "qi-research-pipeline",
+      "createdAt": "2026-01-27T00:00:00.000Z",
+      "updatedAt": "2026-01-27T00:00:00.000Z"
+    },
+    {
+      "name": "stage-5-documents",
+      "createdAt": "2026-01-27T00:00:00.000Z",
+      "updatedAt": "2026-01-27T00:00:00.000Z"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2026-01-27T00:00:00.000Z",
+  "versionId": "1"
+}

@@ -1,0 +1,170 @@
+# QI Research Pipeline - Development Override Configuration
+# Use with: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+version: '3.8'
+
+services:
+  # ===========================================================================
+  # n8n Development Configuration
+  # ===========================================================================
+  n8n:
+    environment:
+      # Development settings
+      - N8N_PROTOCOL=http
+      - N8N_HOST=localhost
+      - WEBHOOK_URL=http://localhost:7400
+      - N8N_LOG_LEVEL=debug
+      - N8N_DIAGNOSTICS_ENABLED=false
+      # Disable telemetry in development
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_VERSION_NOTIFICATIONS_ENABLED=false
+    ports:
+      - "7400:5678"
+    volumes:
+      # Mount local workflows for development
+      - ./workflows:/home/node/.n8n/workflows
+      - ./templates:/templates:ro
+      # Persist n8n data locally for development
+      - ./dev-data/n8n:/home/node/.n8n
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+
+  # ===========================================================================
+  # PostgreSQL Development Configuration
+  # ===========================================================================
+  postgres:
+    ports:
+      # Expose PostgreSQL for local development tools
+      - "7402:5432"
+    environment:
+      - POSTGRES_PASSWORD=devpassword
+    volumes:
+      # Persist database locally for development
+      - ./dev-data/postgres:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+
+  # ===========================================================================
+  # Redis Development Configuration
+  # ===========================================================================
+  redis:
+    ports:
+      # Expose Redis for local development tools
+      - "7403:6379"
+    volumes:
+      # Persist Redis data locally for development
+      - ./dev-data/redis:/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # ===========================================================================
+  # Application Development Configuration
+  # ===========================================================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - DATABASE_URL=postgresql://qi_pipeline:devpassword@postgres:5432/qi_pipeline
+      - DB_PASSWORD=devpassword
+      # Enable hot reload
+      - TS_NODE_DEV=true
+      - DEBUG=app:*
+    ports:
+      - "7401:3000"
+      # Node.js debugger port
+      - "7408:9229"
+    volumes:
+      # Mount source code for hot reload
+      - ./src:/app/src:delegated
+      - ./templates:/app/templates:ro
+      - ./package.json:/app/package.json:ro
+      - ./tsconfig.json:/app/tsconfig.json:ro
+      # Persist node_modules in named volume for performance
+      - app_node_modules:/app/node_modules
+      # Output directory
+      - ./output:/app/output
+      - ./dev-data/app-logs:/app/logs
+    command: ["npx", "ts-node-dev", "--respawn", "--transpile-only", "--inspect=0.0.0.0:9229", "src/index.ts"]
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+
+  # ===========================================================================
+  # Development Tools (Optional)
+  # ===========================================================================
+
+  # Adminer - Database Management UI
+  adminer:
+    image: adminer:latest
+    container_name: qi-pipeline-adminer
+    restart: unless-stopped
+    ports:
+      - "7404:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=postgres
+      - ADMINER_DESIGN=dracula
+    depends_on:
+      - postgres
+    networks:
+      - qi-pipeline
+    profiles:
+      - tools
+
+  # Redis Commander - Redis Management UI
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: qi-pipeline-redis-commander
+    restart: unless-stopped
+    ports:
+      - "7405:8081"
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    depends_on:
+      - redis
+    networks:
+      - qi-pipeline
+    profiles:
+      - tools
+
+  # MailHog - Email Testing
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: qi-pipeline-mailhog
+    restart: unless-stopped
+    ports:
+      - "7406:1025"  # SMTP
+      - "7407:8025"  # Web UI
+    networks:
+      - qi-pipeline
+    profiles:
+      - tools
+
+# =============================================================================
+# Development Volumes
+# =============================================================================
+volumes:
+  app_node_modules:
+    driver: local
+    name: qi-pipeline-dev-node-modules
+
+# =============================================================================
+# Override Network for Development
+# =============================================================================
+networks:
+  qi-pipeline:
+    driver: bridge

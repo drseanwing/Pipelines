@@ -1,0 +1,36 @@
+# Git files
+.git
+.gitignore
+
+# Node modules - will be installed in container
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Ralph state - managed by volumes
+.ralph/
+
+# Temporary files
+.tmp/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment files
+.env
+.env.*
+
+# Build artifacts
+coverage/
+dist/

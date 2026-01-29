@@ -1,0 +1,84 @@
+{
+  "request_id": "550e8400-e29b-41d4-a716-446655440002",
+  "format": "case-based",
+  "topic": {
+    "title": "The Crashing Septic Patient: Vasopressor Choice in Septic Shock",
+    "clinical_question": "In patients with septic shock requiring vasopressor support, what is the optimal first-line vasopressor and when should additional agents be added?",
+    "case_scenario": {
+      "age": "62",
+      "sex": "male",
+      "setting": "Emergency Department",
+      "chief_complaint": "Fever and confusion for 2 days, found on floor by family",
+      "initial_vitals": {
+        "hr": "125",
+        "bp": "78/45",
+        "rr": "28",
+        "spo2": "91% RA",
+        "temp": "39.2",
+        "gcs": "13 (E3V4M6)"
+      },
+      "key_history": "Type 2 diabetes, previous UTI requiring hospitalisation 3 months ago. Independent at baseline.",
+      "key_exam_findings": "Dry mucous membranes, mottled peripheries, prolonged cap refill (5 seconds), diffuse abdominal tenderness, suprapubic tenderness. No obvious source on initial exam."
+    },
+    "scope_notes": "Progress through resuscitation decisions: fluid resuscitation targets, vasopressor initiation timing, choice of first-line vasopressor, when to add second agent, lactate clearance monitoring. Include discussion of peripheral vs central vasopressor administration. Cover both ED and ICU perspectives.",
+    "keywords": [
+      "septic shock",
+      "vasopressors",
+      "noradrenaline",
+      "vasopressin",
+      "fluid resuscitation",
+      "lactate",
+      "mean arterial pressure"
+    ],
+    "related_conditions": [
+      "urosepsis",
+      "distributive shock",
+      "multiorgan dysfunction"
+    ]
+  },
+  "requestor": {
+    "name": "Dr Alex Chen",
+    "email": "alex.chen@health.qld.gov.au",
+    "institution": "Princess Alexandra Hospital",
+    "role": "ICU Fellow"
+  },
+  "target_audience": "registrar",
+  "urgency": "routine",
+  "regional_context": "australia",
+  "suggested_reviewers": [
+    {
+      "name": "Dr Sarah Williams",
+      "email": "sarah.williams@health.qld.gov.au",
+      "credentials": "MBBS FACEM",
+      "speciality": "Emergency Medicine"
+    },
+    {
+      "name": "Dr Robert Taylor",
+      "email": "robert.taylor@health.qld.gov.au",
+      "credentials": "MBBS FCICM PhD",
+      "speciality": "Intensive Care Medicine"
+    }
+  ],
+  "additional_resources": [
+    {
+      "type": "guideline",
+      "reference": "Surviving Sepsis Campaign 2021",
+      "notes": "Current international guidelines"
+    },
+    {
+      "type": "pmid",
+      "reference": "28525567",
+      "notes": "CENSER trial - early noradrenaline in septic shock"
+    },
+    {
+      "type": "pmid",
+      "reference": "25276734",
+      "notes": "VASST trial - vasopressin vs noradrenaline"
+    }
+  ],
+  "created_at": "2025-01-21T11:00:00Z",
+  "metadata": {
+    "source": "manual",
+    "version": "1.0.0"
+  }
+}

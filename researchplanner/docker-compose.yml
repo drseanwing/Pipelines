@@ -1,0 +1,225 @@
+# QI Research Pipeline - Docker Compose Configuration
+# Full stack deployment with all services
+
+services:
+  # ===========================================================================
+  # n8n Workflow Orchestration Service
+  # ===========================================================================
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: qi-pipeline-n8n
+    restart: unless-stopped
+    ports:
+      - "7400:5678"
+    environment:
+      # n8n Core Configuration
+      - N8N_HOST=${N8N_HOST:-0.0.0.0}
+      - N8N_PORT=${N8N_PORT:-5678}
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-https}
+      - WEBHOOK_URL=${WEBHOOK_URL:-https://qi-pipeline.metronorth.health.qld.gov.au}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_USER_MANAGEMENT_JWT_SECRET=${N8N_JWT_SECRET}
+      # Database Configuration
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB:-qi_pipeline}
+      - DB_POSTGRESDB_USER=${POSTGRES_USER:-qi_pipeline}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED=false
+      # External API Keys
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      # Email Configuration
+      - N8N_EMAIL_MODE=smtp
+      - N8N_SMTP_HOST=${SMTP_HOST:-smtp.health.qld.gov.au}
+      - N8N_SMTP_PORT=${SMTP_PORT:-587}
+      - N8N_SMTP_USER=${SMTP_USER}
+      - N8N_SMTP_PASS=${SMTP_PASSWORD}
+      - N8N_SMTP_SENDER=${SMTP_SENDER:-qi-pipeline@metronorth.health.qld.gov.au}
+      # Execution Settings
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=168
+      - EXECUTIONS_DATA_SAVE_ON_ERROR=all
+      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
+      # Timezone
+      - GENERIC_TIMEZONE=${TIMEZONE:-Australia/Brisbane}
+      - TZ=${TIMEZONE:-Australia/Brisbane}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./templates:/templates:ro
+      - ./workflows:/workflows:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - qi-pipeline
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 4G
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ===========================================================================
+  # PostgreSQL Database Service
+  # ===========================================================================
+  postgres:
+    image: postgres:15
+    container_name: qi-pipeline-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-qi_pipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-qi_pipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d:ro
+    networks:
+      - qi-pipeline
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-qi_pipeline} -d ${POSTGRES_DB:-qi_pipeline}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ===========================================================================
+  # Redis Cache Service (Optional)
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: qi-pipeline-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 1gb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - qi-pipeline
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # ===========================================================================
+  # Application Service
+  # ===========================================================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: qi-pipeline-app
+    restart: unless-stopped
+    ports:
+      - "7401:3000"
+    environment:
+      # Application Configuration
+      - NODE_ENV=production
+      - PORT=3000
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      # Database Configuration
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-qi_pipeline}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-qi_pipeline}
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${POSTGRES_DB:-qi_pipeline}
+      - DB_USER=${POSTGRES_USER:-qi_pipeline}
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      # Redis Configuration
+      - REDIS_URL=redis://redis:6379
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      # n8n Integration
+      - N8N_URL=http://n8n:5678
+      - N8N_API_KEY=${N8N_API_KEY}
+      # External API Keys
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      # Storage Configuration
+      - S3_ENDPOINT=${S3_ENDPOINT}
+      - S3_BUCKET=${S3_BUCKET:-qi-pipeline-documents}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY}
+      - S3_SECRET_KEY=${S3_SECRET_KEY}
+      - S3_REGION=${S3_REGION:-ap-southeast-2}
+      # Email Configuration
+      - SMTP_HOST=${SMTP_HOST:-smtp.health.qld.gov.au}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - SMTP_FROM=${SMTP_SENDER:-qi-pipeline@metronorth.health.qld.gov.au}
+      # Security
+      - JWT_SECRET=${JWT_SECRET}
+      - SESSION_SECRET=${SESSION_SECRET}
+      # Timezone
+      - TZ=${TIMEZONE:-Australia/Brisbane}
+    volumes:
+      - ./templates:/app/templates:ro
+      - ./output:/app/output
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      n8n:
+        condition: service_healthy
+    networks:
+      - qi-pipeline
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+
+# =============================================================================
+# Named Volumes for Data Persistence
+# =============================================================================
+volumes:
+  n8n_data:
+    driver: local
+    name: qi-pipeline-n8n-data
+  postgres_data:
+    driver: local
+    name: qi-pipeline-postgres-data
+  redis_data:
+    driver: local
+    name: qi-pipeline-redis-data
+
+# =============================================================================
+# Internal Network
+# =============================================================================
+networks:
+  qi-pipeline:
+    driver: bridge
+    name: qi-pipeline-network
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

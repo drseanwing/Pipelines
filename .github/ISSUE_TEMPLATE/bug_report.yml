@@ -1,0 +1,66 @@
+name: Bug Report
+description: Report a bug or unexpected behaviour
+labels: ["type: bug", "status: needs info"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug!
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear description of the bug
+      placeholder: What happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behaviour
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behaviour
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Please provide environment details
+      placeholder: |
+        - OS: [e.g., macOS 14.0, Ubuntu 22.04]
+        - Browser: [e.g., Chrome 120]
+        - Version: [e.g., 1.2.3]
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs
+      description: Include any relevant log output
+      render: shell
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I have searched existing issues to ensure this is not a duplicate
+          required: true
+        - label: I have read the documentation
+          required: true

@@ -1,0 +1,50 @@
+{
+  "permissions": {
+    "allow_read": ["**/*"],
+    "allow_write": [
+      "src/**/*",
+      "tests/**/*",
+      "docs/**/*",
+      "scripts/**/*",
+      "docker/**/*",
+      "*.md",
+      "*.json",
+      "*.yaml",
+      "*.yml",
+      ".env.example"
+    ],
+    "deny_write": [
+      ".github/workflows/**/*",
+      ".claude/settings.json",
+      "SECURITY.md",
+      ".gitignore",
+      "LICENSE"
+    ],
+    "allow_execute": [
+      "scripts/*.sh",
+      "docker compose *",
+      "npm *",
+      "yarn *",
+      "pnpm *",
+      "pip *",
+      "pytest *",
+      "python *",
+      "node *"
+    ],
+    "allow_network": true,
+    "allow_shell": true
+  },
+  "behavior": {
+    "auto_approve_reads": true,
+    "auto_approve_safe_writes": true,
+    "require_approval_for_shell": false,
+    "require_approval_for_network": false
+  },
+  "context": {
+    "always_include": [
+      "CLAUDE.md",
+      "README.md",
+      "docs/ARCHITECTURE.md"
+    ]
+  }
+}

@@ -1,0 +1,66 @@
+# FOAM N8N Multi-LLM Orchestration
+# docker-compose.yml
+# Version: 1.0.0
+# See IMPLEMENTATION_FRAMEWORK.md Section 9 for details
+
+version: '3.8'
+
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    restart: always
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
+      - N8N_HOST=${N8N_HOST}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - NODE_ENV=production
+      - WEBHOOK_URL=https://${N8N_HOST}/
+      - GENERIC_TIMEZONE=Australia/Brisbane
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_DATABASE=n8n
+      - DB_POSTGRESDB_USER=${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./workflows:/workflows
+    depends_on:
+      - postgres
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  postgres:
+    image: postgres:14
+    restart: always
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=n8n
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./config/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: always
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  n8n_data:
+  postgres_data:
+  ollama_data:

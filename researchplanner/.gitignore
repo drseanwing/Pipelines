@@ -1,0 +1,85 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+<<<<<<< HEAD
+build/
+out/
+
+# Environment variables
+=======
+
+# Environment files
+>>>>>>> 1aaf7698eb73d0d475ca2c2ca13c0fbdef37ae4a
+.env
+.env.local
+.env.*.local
+
+<<<<<<< HEAD
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Test coverage
+coverage/
+*.lcov
+.nyc_output/
+
+# n8n local data
+.n8n/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# TypeScript
+*.tsbuildinfo
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional REPL history
+.node_repl_history
+=======
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Test coverage
+coverage/
+
+# Temporary files
+tmp/
+temp/
+>>>>>>> 1aaf7698eb73d0d475ca2c2ca13c0fbdef37ae4a

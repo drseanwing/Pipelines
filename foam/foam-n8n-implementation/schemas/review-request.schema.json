@@ -1,0 +1,229 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://redi.health.qld.gov.au/foam/schemas/review-request.json",
+  "title": "ReviewRequest",
+  "description": "Schema for expert review requests and feedback",
+  "type": "object",
+  "required": ["request_id", "draft_id", "reviewer", "checklist"],
+  "properties": {
+    "review_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for this review"
+    },
+    "request_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Links to original topic request"
+    },
+    "draft_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Links to the draft being reviewed"
+    },
+    "draft_version": {
+      "type": "integer",
+      "description": "Version of the draft being reviewed"
+    },
+    "reviewer": {
+      "type": "object",
+      "required": ["name", "email"],
+      "properties": {
+        "name": { "type": "string" },
+        "credentials": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "institution": { "type": "string" },
+        "speciality": { "type": "string" },
+        "reviewer_role": {
+          "type": "string",
+          "enum": ["peer-reviewer", "editor", "author", "sme"]
+        }
+      }
+    },
+    "checklist": {
+      "type": "object",
+      "properties": {
+        "doses_to_verify": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "item_id": { "type": "string" },
+              "drug": { "type": "string" },
+              "dose": { "type": "string" },
+              "route": { "type": "string" },
+              "indication": { "type": "string" },
+              "source_cited": { "type": "string" },
+              "verified": { "type": "boolean" },
+              "correct": { "type": "boolean" },
+              "correction": { "type": "string" },
+              "notes": { "type": "string" }
+            }
+          }
+        },
+        "thresholds_to_verify": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "item_id": { "type": "string" },
+              "parameter": { "type": "string" },
+              "threshold": { "type": "string" },
+              "context": { "type": "string" },
+              "source_cited": { "type": "string" },
+              "verified": { "type": "boolean" },
+              "correct": { "type": "boolean" },
+              "correction": { "type": "string" },
+              "notes": { "type": "string" }
+            }
+          }
+        },
+        "clinical_pearls_needed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "placeholder_id": { "type": "string" },
+              "topic": { "type": "string" },
+              "context": { "type": "string" },
+              "prompt": { "type": "string" },
+              "pearl_provided": { "type": "string" },
+              "attribution": { "type": "string" }
+            }
+          }
+        },
+        "claims_to_verify": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "item_id": { "type": "string" },
+              "claim": { "type": "string" },
+              "source_cited": { "type": "string" },
+              "context": { "type": "string" },
+              "verified": { "type": "boolean" },
+              "accurate": { "type": "boolean" },
+              "modification": { "type": "string" },
+              "notes": { "type": "string" }
+            }
+          }
+        },
+        "regional_variations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "placeholder_id": { "type": "string" },
+              "topic": { "type": "string" },
+              "context": { "type": "string" },
+              "local_practice": { "type": "string" },
+              "guideline_reference": { "type": "string" }
+            }
+          }
+        },
+        "expert_questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "question_id": { "type": "string" },
+              "question": { "type": "string" },
+              "context": { "type": "string" },
+              "answer": { "type": "string" },
+              "incorporate_into_draft": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
+    "quality_assessment": {
+      "type": "object",
+      "properties": {
+        "clinical_accuracy": {
+          "type": "string",
+          "enum": ["excellent", "good", "acceptable", "needs-work", "unacceptable"]
+        },
+        "evidence_synthesis": {
+          "type": "string",
+          "enum": ["excellent", "good", "acceptable", "needs-work", "unacceptable"]
+        },
+        "practical_applicability": {
+          "type": "string",
+          "enum": ["excellent", "good", "acceptable", "needs-work", "unacceptable"]
+        },
+        "writing_quality": {
+          "type": "string",
+          "enum": ["excellent", "good", "acceptable", "needs-work", "unacceptable"]
+        },
+        "appropriate_for_audience": {
+          "type": "string",
+          "enum": ["excellent", "good", "acceptable", "needs-work", "unacceptable"]
+        },
+        "overall_assessment": {
+          "type": "string",
+          "enum": ["excellent", "good", "acceptable", "needs-work", "unacceptable"]
+        }
+      }
+    },
+    "general_feedback": {
+      "type": "string"
+    },
+    "suggested_changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "change_id": { "type": "string" },
+          "section": { "type": "string" },
+          "current_text": { "type": "string" },
+          "suggested_text": { "type": "string" },
+          "rationale": { "type": "string" },
+          "priority": {
+            "type": "string",
+            "enum": ["required", "recommended", "optional"]
+          },
+          "accepted": { "type": "boolean" }
+        }
+      }
+    },
+    "missing_content": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "topic": { "type": "string" },
+          "description": { "type": "string" },
+          "importance": {
+            "type": "string",
+            "enum": ["critical", "important", "nice-to-have"]
+          }
+        }
+      }
+    },
+    "approval_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "approved",
+        "approved-with-minor-changes",
+        "revisions-required",
+        "major-revisions-required",
+        "rejected"
+      ],
+      "default": "pending"
+    },
+    "approval_conditions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "timestamps": {
+      "type": "object",
+      "properties": {
+        "requested_at": { "type": "string", "format": "date-time" },
+        "started_at": { "type": "string", "format": "date-time" },
+        "submitted_at": { "type": "string", "format": "date-time" },
+        "due_date": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}
