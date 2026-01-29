@@ -92,6 +92,29 @@ docker/data/
 *.tar
 
 # =============================================================================
-# Project Specific
+# Project Specific - Monorepo
 # =============================================================================
-# Add project-specific ignores below
+# pnpm
+.pnpm-store/
+
+# Infrastructure data volumes
+infrastructure/docker/data/
+infrastructure/docker/.env
+
+# N8N data
+.n8n/
+
+# Ollama models (large files)
+ollama-data/
+
+# PostgreSQL data
+pgdata/
+
+# Redis data
+redis-data/
+
+# I-Librarian data
+i-librarian-data/
+
+# OMC state
+.omc/

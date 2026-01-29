@@ -1,0 +1,36 @@
+{
+  "name": "@pipelines/llm-client",
+  "version": "0.1.0",
+  "description": "Multi-provider LLM client (Claude, OpenAI, Ollama) with structured output",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@pipelines/retry": "workspace:*",
+    "@pipelines/logging": "workspace:*",
+    "@pipelines/config": "workspace:*",
+    "@pipelines/validation": "workspace:*",
+    "@anthropic-ai/sdk": "^0.32.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "MIT"
+}

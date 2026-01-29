@@ -1,113 +1,44 @@
-# =============================================================================
-# Security Scanning
-# =============================================================================
-
 name: Security
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
-    branches: [main]
+    branches: [main, master]
   schedule:
-    - cron: "0 6 * * 1"  # Weekly on Monday at 6am UTC
+    - cron: '0 6 * * 1'
 
 permissions:
-  contents: read
   security-events: write
+  contents: read
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # CodeQL Analysis
-  # ---------------------------------------------------------------------------
   codeql:
-    name: CodeQL
     runs-on: ubuntu-latest
-
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ['javascript-typescript']
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
         with:
-          languages: python  # Adjust for your language
+          languages: ${{ matrix.language }}
+      - uses: github/codeql-action/autobuild@v3
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:${{ matrix.language }}'
 
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
-
-  # ---------------------------------------------------------------------------
-  # Dependency Scanning
-  # ---------------------------------------------------------------------------
-  dependency-scan:
-    name: Dependency Scan
+  dependency-audit:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
         with:
-          scan-type: "fs"
-          scan-ref: "."
-          format: "sarif"
-          output: "trivy-results.sarif"
-          severity: "CRITICAL,HIGH"
-
-      - name: Upload Trivy scan results
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
+          version: 9
+      - uses: actions/setup-node@v4
         with:
-          sarif_file: "trivy-results.sarif"
-
-  # ---------------------------------------------------------------------------
-  # Container Scanning
-  # ---------------------------------------------------------------------------
-  container-scan:
-    name: Container Scan
-    runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request'
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Build image for scanning
-        run: docker build -t scan-target:latest -f docker/Dockerfile .
-
-      - name: Run Trivy container scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: "scan-target:latest"
-          format: "sarif"
-          output: "container-results.sarif"
-          severity: "CRITICAL,HIGH"
-
-      - name: Upload container scan results
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: "container-results.sarif"
-
-  # ---------------------------------------------------------------------------
-  # Secret Scanning
-  # ---------------------------------------------------------------------------
-  secrets-scan:
-    name: Secret Scan
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: TruffleHog Secret Scan
-        uses: trufflesecurity/trufflehog@main
-        with:
-          extra_args: --only-verified
+          node-version: 20
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --audit-level=high

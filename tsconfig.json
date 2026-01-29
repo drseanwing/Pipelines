@@ -1,0 +1,38 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "references": [
+    { "path": "packages/core/config" },
+    { "path": "packages/core/logging" },
+    { "path": "packages/core/retry" },
+    { "path": "packages/core/validation" },
+    { "path": "packages/core/database" },
+    { "path": "packages/core/llm-client" },
+    { "path": "packages/core/checkpoint" },
+    { "path": "packages/core/n8n-utils" },
+    { "path": "packages/core/pubmed" },
+    { "path": "apps/researchplanner" }
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "apps/foam",
+    "apps/critlit",
+    "apps/ralph"
+  ]
+}
