@@ -21,7 +21,25 @@ permissions:
   deployments: write
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:packages
+      - run: pnpm test:packages
+      - name: Validate Docker Compose
+        run: docker compose -f infrastructure/docker/docker-compose.yml config
+
   deploy:
+    needs: validate
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     steps:
@@ -29,5 +47,14 @@ jobs:
       - name: Deploy services
         run: |
           echo "Deploying ${{ inputs.services }} to ${{ inputs.environment }}"
-          echo "TODO: Implement deployment script"
-          # docker compose -f infrastructure/docker/docker-compose.yml up -d
+          echo "Target: Docker rootless on deployment server"
+          echo ""
+          echo "Deployment steps:"
+          echo "1. Pull latest code"
+          echo "2. Build packages: pnpm build:packages"
+          echo "3. Start infrastructure: docker compose up -d postgres redis ollama"
+          echo "4. Wait for health checks"
+          echo "5. Start application services"
+          echo "6. Verify health endpoints"
+          # TODO: Replace echo statements with actual deployment commands
+          # when SSH access to deployment server is configured

@@ -58,6 +58,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:packages
       - run: pnpm test:packages
+      - run: pnpm --filter qi-research-pipeline build
 
   test-researchplanner:
     needs: [detect-changes, build-packages]
@@ -113,3 +114,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker compose -f infrastructure/docker/docker-compose.yml config
+
+  integration-test:
+    needs: [detect-changes, docker-build]
+    if: always() && needs.detect-changes.outputs.infrastructure == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create test .env
+        run: |
+          cp infrastructure/docker/.env.example infrastructure/docker/.env
+          sed -i 's/CHANGE_ME_strong_password_here/test_password_123/' infrastructure/docker/.env
+          sed -i 's/CHANGE_ME_redis_password/test_redis_pass/' infrastructure/docker/.env
+          sed -i 's/CHANGE_ME.*/test_value/' infrastructure/docker/.env
+          sed -i 's/sk-ant-CHANGE_ME/test-key/' infrastructure/docker/.env
+          sed -i 's/sk-CHANGE_ME/test-key/' infrastructure/docker/.env
+      - name: Start infrastructure services
+        working-directory: infrastructure/docker
+        run: |
+          docker compose up -d postgres redis
+          sleep 15
+      - name: Verify PostgreSQL schemas
+        working-directory: infrastructure/docker
+        run: |
+          docker compose exec -T postgres psql -U pipelines -d pipelines -c "\dn" | grep -q "foam"
+          docker compose exec -T postgres psql -U pipelines -d pipelines -c "\dn" | grep -q "qi"
+          docker compose exec -T postgres psql -U pipelines -d pipelines -c "\dn" | grep -q "slr"
+      - name: Verify Redis
+        working-directory: infrastructure/docker
+        run: |
+          docker compose exec -T redis redis-cli -a test_redis_pass ping | grep -q "PONG"
+      - name: Cleanup
+        if: always()
+        working-directory: infrastructure/docker
+        run: docker compose down -v
