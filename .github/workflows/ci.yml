@@ -21,7 +21,7 @@ jobs:
       apps-ralph: ${{ steps.changes.outputs.apps-ralph }}
       infrastructure: ${{ steps.changes.outputs.infrastructure }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v3
         id: changes
         with:
@@ -47,7 +47,7 @@ jobs:
     if: needs.detect-changes.outputs.packages == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v4
         with:
           version: 9
@@ -65,7 +65,7 @@ jobs:
     if: always() && needs.detect-changes.outputs.apps-researchplanner == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v4
         with:
           version: 9
@@ -82,7 +82,7 @@ jobs:
     if: needs.detect-changes.outputs.apps-ralph == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v4
         with:
           version: 9
@@ -96,7 +96,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v4
         with:
           version: 9
@@ -112,7 +112,7 @@ jobs:
     if: needs.detect-changes.outputs.infrastructure == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: docker compose -f infrastructure/docker/docker-compose.yml config
 
   integration-test:
@@ -120,7 +120,7 @@ jobs:
     if: always() && needs.detect-changes.outputs.infrastructure == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Create test .env
         run: |
           cp infrastructure/docker/.env.example infrastructure/docker/.env
