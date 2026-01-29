@@ -1,0 +1,63 @@
+import { describe, it, expect, vi } from 'vitest';
+import { Database, createDatabase } from './index.js';
+
+// Note: These tests validate the API surface without requiring a real database.
+// Integration tests with a real database are in the apps/ tests.
+
+describe('@pipelines/database', () => {
+  describe('Database constructor', () => {
+    it('creates a Database instance', () => {
+      // This will create a pool but won't connect until a query is made
+      const db = new Database({
+        host: 'localhost',
+        port: 5432,
+        database: 'test',
+        user: 'test',
+        password: 'test',
+      });
+      expect(db).toBeInstanceOf(Database);
+    });
+
+    it('accepts schema option', () => {
+      const db = new Database({
+        host: 'localhost',
+        port: 5432,
+        database: 'test',
+        user: 'test',
+        password: 'test',
+        schema: 'foam',
+      });
+      expect(db).toBeInstanceOf(Database);
+    });
+  });
+
+  describe('createDatabase', () => {
+    it('creates from env with defaults', () => {
+      const db = createDatabase({
+        host: 'testhost',
+        port: 5433,
+        database: 'testdb',
+        user: 'testuser',
+        password: 'testpass',
+      });
+      expect(db).toBeInstanceOf(Database);
+    });
+  });
+
+  describe('getPoolStats', () => {
+    it('returns pool statistics', () => {
+      const db = new Database({
+        host: 'localhost',
+        port: 5432,
+        database: 'test',
+        user: 'test',
+        password: 'test',
+      });
+
+      const stats = db.getPoolStats();
+      expect(stats).toHaveProperty('totalCount');
+      expect(stats).toHaveProperty('idleCount');
+      expect(stats).toHaveProperty('waitingCount');
+    });
+  });
+});
