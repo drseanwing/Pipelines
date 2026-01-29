@@ -1,0 +1,107 @@
+# Pipeline Orchestrator - Monitoring Stack
+# Usage: docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+
+services:
+  # ===========================================================================
+  # MONITORING (5813-5814, 5840-5842)
+  # ===========================================================================
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: pipelines-prometheus
+    restart: unless-stopped
+    ports:
+      - "5813:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    networks:
+      - shared
+      - monitoring
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: pipelines-grafana
+    restart: unless-stopped
+    ports:
+      - "5814:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_SERVER_ROOT_URL=http://localhost:5814
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - monitoring
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: pipelines-node-exporter
+    restart: unless-stopped
+    ports:
+      - "5840:9100"
+    networks:
+      - monitoring
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:latest
+    container_name: pipelines-postgres-exporter
+    restart: unless-stopped
+    ports:
+      - "5841:9187"
+    environment:
+      - DATA_SOURCE_NAME=postgresql://${POSTGRES_USER:-pipelines}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-pipelines}?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - shared
+      - monitoring
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: pipelines-cadvisor
+    restart: unless-stopped
+    ports:
+      - "5842:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - monitoring
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+volumes:
+  prometheus_data:
+    driver: local
+    name: pipelines-prometheus-data
+  grafana_data:
+    driver: local
+    name: pipelines-grafana-data
+
+networks:
+  monitoring:
+    driver: bridge
+    name: pipelines-monitoring

@@ -1,0 +1,78 @@
+# Pipeline Orchestrator - Development Overrides
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+
+services:
+  # ===========================================================================
+  # Development Tools (QI Pipeline)
+  # ===========================================================================
+
+  adminer:
+    image: adminer:latest
+    container_name: pipelines-adminer
+    restart: unless-stopped
+    ports:
+      - "5823:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=postgres
+    networks:
+      - shared
+    profiles:
+      - dev-tools
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: pipelines-redis-commander
+    restart: unless-stopped
+    ports:
+      - "5824:8081"
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    networks:
+      - shared
+    profiles:
+      - dev-tools
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: pipelines-mailhog
+    restart: unless-stopped
+    ports:
+      - "5825:8025"
+      - "5826:1025"
+    networks:
+      - shared
+      - qi-internal
+    profiles:
+      - dev-tools
+
+  # ===========================================================================
+  # Development Overrides
+  # ===========================================================================
+
+  qi-app:
+    build:
+      context: ../../apps/researchplanner
+      dockerfile: Dockerfile
+      target: development
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+    ports:
+      - "5821:3000"
+      - "5822:9229"
+    volumes:
+      - ../../apps/researchplanner/src:/app/src:ro
+      - ../../apps/researchplanner/templates:/app/templates:ro
+    command: ["node", "--inspect=0.0.0.0:9229", "--watch", "src/index.ts"]
+
+  # Postgres dev overrides - expose port for direct access
+  postgres:
+    ports:
+      - "5810:5432"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpassword}
+
+  # Redis dev overrides
+  redis:
+    ports:
+      - "5811:6379"
