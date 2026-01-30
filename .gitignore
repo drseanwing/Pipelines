@@ -97,6 +97,11 @@ docker/data/
 # pnpm
 .pnpm-store/
 
+# Non-pnpm lock files (this monorepo uses pnpm exclusively)
+package-lock.json
+bun.lock
+yarn.lock
+
 # Infrastructure data volumes
 infrastructure/docker/data/
 infrastructure/docker/.env
