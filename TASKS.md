@@ -38,6 +38,7 @@ Full codebase review completed across core packages, infrastructure, CI/CD, and 
 | B2 | database | Tests create connection pools but never close them | Added afterEach cleanup hook | 1d69e71 |
 | B3 | llm-client | No tests for chat(), chatStructured(), extractJSON() | Added comprehensive mocked tests | 52ed6e8 |
 | B4 | pubmed | Regex-based XML parsing is unreliable | Replaced with fast-xml-parser | 163cb39 |
+| B6 | infrastructure | Docker images use :latest tags (31 instances) | Pinned all to specific versions | 09b7e60 |
 
 ### Remaining Backlog
 
