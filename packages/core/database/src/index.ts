@@ -71,9 +71,9 @@ export class Database {
    * Only allows alphanumeric characters and underscores
    */
   private validateSchemaName(schema: string): void {
-    if (!/^[a-z_][a-z0-9_]*$/i.test(schema)) {
+    if (!schema || schema.length > 63 || !/^[a-z_][a-z0-9_]*$/i.test(schema)) {
       throw new Error(
-        `Invalid schema name: "${schema}". Only alphanumeric characters and underscores are allowed.`
+        `Invalid schema name: "${schema}". Must be 1-63 alphanumeric/underscore characters.`
       );
     }
   }
