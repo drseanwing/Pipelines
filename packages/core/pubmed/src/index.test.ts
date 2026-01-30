@@ -26,32 +26,34 @@ describe('@pipelines/pubmed', () => {
       const client = new PubMedClient();
 
       const xml = `
-        <PubmedArticle>
-          <MedlineCitation>
-            <PMID>12345678</PMID>
-            <Article>
-              <ArticleTitle>Test Article Title</ArticleTitle>
-              <Abstract>
-                <AbstractText>Test abstract content.</AbstractText>
-              </Abstract>
-              <AuthorList>
-                <Author>
-                  <LastName>Smith</LastName>
-                  <ForeName>John</ForeName>
-                  <Initials>J</Initials>
-                </Author>
-              </AuthorList>
-              <Journal>
-                <Title>Test Journal</Title>
-              </Journal>
-            </Article>
-          </MedlineCitation>
-          <PubmedData>
-            <ArticleIdList>
-              <ArticleId IdType="doi">10.1000/test</ArticleId>
-            </ArticleIdList>
-          </PubmedData>
-        </PubmedArticle>
+        <PubmedArticleSet>
+          <PubmedArticle>
+            <MedlineCitation>
+              <PMID>12345678</PMID>
+              <Article>
+                <ArticleTitle>Test Article Title</ArticleTitle>
+                <Abstract>
+                  <AbstractText>Test abstract content.</AbstractText>
+                </Abstract>
+                <AuthorList>
+                  <Author>
+                    <LastName>Smith</LastName>
+                    <ForeName>John</ForeName>
+                    <Initials>J</Initials>
+                  </Author>
+                </AuthorList>
+                <Journal>
+                  <Title>Test Journal</Title>
+                </Journal>
+              </Article>
+            </MedlineCitation>
+            <PubmedData>
+              <ArticleIdList>
+                <ArticleId IdType="doi">10.1000/test</ArticleId>
+              </ArticleIdList>
+            </PubmedData>
+          </PubmedArticle>
+        </PubmedArticleSet>
       `;
 
       const articles = client.parseArticlesXml(xml);
@@ -72,30 +74,34 @@ describe('@pipelines/pubmed', () => {
       const client = new PubMedClient();
 
       const xml = `
-        <PubmedArticle>
-          <MedlineCitation>
-            <PMID>99999</PMID>
-            <Article>
-              <ArticleTitle>Multi-Author Paper</ArticleTitle>
-              <AuthorList>
-                <Author>
-                  <LastName>Smith</LastName>
-                  <ForeName>John</ForeName>
-                  <Initials>J</Initials>
-                  <Affiliation>MIT</Affiliation>
-                </Author>
-                <Author>
-                  <LastName>Doe</LastName>
-                  <ForeName>Jane</ForeName>
-                  <Initials>JD</Initials>
-                </Author>
-              </AuthorList>
-              <Journal>
-                <Title>Nature</Title>
-              </Journal>
-            </Article>
-          </MedlineCitation>
-        </PubmedArticle>
+        <PubmedArticleSet>
+          <PubmedArticle>
+            <MedlineCitation>
+              <PMID>99999</PMID>
+              <Article>
+                <ArticleTitle>Multi-Author Paper</ArticleTitle>
+                <AuthorList>
+                  <Author>
+                    <LastName>Smith</LastName>
+                    <ForeName>John</ForeName>
+                    <Initials>J</Initials>
+                    <AffiliationInfo>
+                      <Affiliation>MIT</Affiliation>
+                    </AffiliationInfo>
+                  </Author>
+                  <Author>
+                    <LastName>Doe</LastName>
+                    <ForeName>Jane</ForeName>
+                    <Initials>JD</Initials>
+                  </Author>
+                </AuthorList>
+                <Journal>
+                  <Title>Nature</Title>
+                </Journal>
+              </Article>
+            </MedlineCitation>
+          </PubmedArticle>
+        </PubmedArticleSet>
       `;
 
       const articles = client.parseArticlesXml(xml);
@@ -110,20 +116,22 @@ describe('@pipelines/pubmed', () => {
       const client = new PubMedClient();
 
       const xml = `
-        <PubmedArticle>
-          <MedlineCitation>
-            <PMID>11111</PMID>
-            <Article>
-              <ArticleTitle>DOI Paper</ArticleTitle>
-              <Journal><Title>J</Title></Journal>
-            </Article>
-          </MedlineCitation>
-          <PubmedData>
-            <ArticleIdList>
-              <ArticleId IdType="doi">10.1234/test.2024</ArticleId>
-            </ArticleIdList>
-          </PubmedData>
-        </PubmedArticle>
+        <PubmedArticleSet>
+          <PubmedArticle>
+            <MedlineCitation>
+              <PMID>11111</PMID>
+              <Article>
+                <ArticleTitle>DOI Paper</ArticleTitle>
+                <Journal><Title>J</Title></Journal>
+              </Article>
+            </MedlineCitation>
+            <PubmedData>
+              <ArticleIdList>
+                <ArticleId IdType="doi">10.1234/test.2024</ArticleId>
+              </ArticleIdList>
+            </PubmedData>
+          </PubmedArticle>
+        </PubmedArticleSet>
       `;
 
       const articles = client.parseArticlesXml(xml);

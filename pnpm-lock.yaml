@@ -223,6 +223,10 @@ importers:
         version: 2.1.9(@types/node@24.10.9)
 
   packages/core/pubmed:
+    dependencies:
+      fast-xml-parser:
+        specifier: ^4.5.0
+        version: 4.5.3
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
