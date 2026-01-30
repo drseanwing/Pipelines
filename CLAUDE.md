@@ -1,76 +1,82 @@
 # CLAUDE.md - Agent Instructions
 
 ## Project Overview
-[Brief description of the project, its purpose, and key technologies]
+Pipeline Orchestrator - a monorepo consolidating four medical research pipeline applications (FOAM, ResearchPlanner, CritLit, Ralph) with shared infrastructure, core packages, and unified deployment.
 
 ## Tech Stack
-- **Language:** [e.g., Python 3.11+, Node.js 20+, PHP 8.2+]
-- **Framework:** [e.g., FastAPI, Next.js, Laravel]
-- **Database:** [e.g., PostgreSQL, MySQL, SQLite]
-- **Infrastructure:** Docker, [cloud provider if applicable]
+- **Language:** TypeScript 5.7+ (ESM), JavaScript (N8N Code Nodes)
+- **Framework:** Express (ResearchPlanner), N8N (FOAM/CritLit), Node CLI (Ralph)
+- **Database:** PostgreSQL 16 with pgvector (single instance, per-project schemas)
+- **Infrastructure:** Docker Compose, Redis 7, Ollama, Prometheus/Grafana
+- **Package Manager:** pnpm 9+ with workspaces
 
 ## Development Standards
 
 ### Code Style
-- Follow [language-specific style guide, e.g., PEP 8, PSR-12, Airbnb]
+- TypeScript: ES2022 target, bundler module resolution, strict mode
 - Maximum line length: 120 characters
-- Use meaningful variable/function names (no abbreviations except common ones)
-- All functions require docstrings/JSDoc comments
+- Use meaningful variable/function names
+- All public functions require JSDoc comments
 
 ### Logging Requirements
-- Use structured logging (JSON format preferred)
-- Log to external files in `/var/log/app/` or `./logs/`
-- Log levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
-- Include correlation IDs for request tracing
-- Never log sensitive data (credentials, PII, tokens)
+- Use @pipelines/logging for structured JSON logging
+- Log levels: debug, info, warn, error
+- Include stage lifecycle events (stageStart, stageComplete, stageFailed)
+- Never log sensitive data (API keys, credentials, PII)
 
 ### Error Handling
-- Implement graceful degradation for all external dependencies
-- Use custom exception classes for domain-specific errors
-- Always provide meaningful error messages
-- Include retry logic with exponential backoff for network operations
-- Log all errors with full context (stack trace, request details)
+- Use @pipelines/retry for exponential backoff with jitter
+- Classify errors as transient/permanent via classifyError()
+- Sanitize error messages to prevent API key leakage
+- Always provide meaningful error context
 
 ### Testing Requirements
+- Framework: Vitest
 - Minimum 80% code coverage for new code
 - Unit tests for all business logic
-- Integration tests for API endpoints
-- E2E tests for critical user journeys
+- Test files: `*.test.ts` alongside source
 
 ## File Naming Conventions
-- Python: `snake_case.py`
-- JavaScript/TypeScript: `camelCase.ts` or `kebab-case.ts` (be consistent)
-- CSS/SCSS: `kebab-case.scss`
-- Tests: `*.test.ts`, `*_test.py`, `*.spec.ts`
+- TypeScript: `camelCase.ts` (packages) or `kebab-case.ts` (apps)
+- Tests: `*.test.ts`
+- Config: `*.config.ts` or `*.config.js`
 
 ## Git Workflow
 - Branch naming: `feature/`, `bugfix/`, `hotfix/`, `chore/`, `docs/`
 - Commit messages: Conventional Commits format
-- Always rebase before merging
-- Squash commits on merge to main
+- Squash commits on merge to master
 
 ## Key Files
-- `docker/docker-compose.yml` - Local development environment
+- `infrastructure/docker/docker-compose.yml` - Unified Docker infrastructure
+- `infrastructure/docker/.env.example` - Required environment variables
 - `docs/ARCHITECTURE.md` - System architecture documentation
-- `.env.example` - Required environment variables
-- `TASKS.md` - Current project tasks and progress
+- `docs/RUNBOOK.md` - Operational procedures
+- `docs/CONTRIBUTING.md` - Development workflow
+- `MONOREPO_PLAN.md` - Implementation plan and progress
 
 ## Prohibited Actions
 - Do not commit secrets or credentials
 - Do not modify CI/CD workflows without explicit approval
-- Do not remove or weaken security configurations
 - Do not bypass pre-commit hooks
+- Do not add phantom dependencies (declared but unused)
+- Do not use greedy regex for JSON extraction
 
 ## Common Commands
 ```bash
-# Development
-docker compose -f docker/docker-compose.yml up -d
-./scripts/setup.sh
+# Install dependencies
+pnpm install
 
-# Testing
-./scripts/test.sh
-docker compose exec app pytest --cov
+# Build all packages
+pnpm build:packages
 
-# Linting
-pre-commit run --all-files
+# Test all packages
+pnpm test:packages
+
+# Lint
+pnpm lint
+
+# Docker infrastructure
+cd infrastructure/docker
+cp .env.example .env  # Edit with real values
+docker compose up -d
 ```

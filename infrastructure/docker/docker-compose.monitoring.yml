@@ -66,7 +66,7 @@ services:
     ports:
       - "5841:9187"
     environment:
-      - DATA_SOURCE_NAME=postgresql://${POSTGRES_USER:-pipelines}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-pipelines}?sslmode=disable
+      - DATA_SOURCE_NAME=postgresql://${POSTGRES_USER:-pipelines}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-pipelines}?sslmode=prefer
     depends_on:
       postgres:
         condition: service_healthy

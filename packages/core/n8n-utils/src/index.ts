@@ -154,6 +154,54 @@ export function errorOutput(message: string, details?: Record<string, unknown>):
 }
 
 /**
+ * Extract a valid JSON string using bracket matching to handle nested structures
+ */
+function extractJsonString(text: string): string {
+  const startChars = ['{', '['] as const;
+  const endMap: Record<string, string> = { '{': '}', '[': ']' };
+
+  for (const startChar of startChars) {
+    const startIdx = text.indexOf(startChar);
+    if (startIdx === -1) continue;
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let i = startIdx; i < text.length; i++) {
+      const ch = text[i];
+      if (!ch) continue;
+
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\' && inString) {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (ch === startChar) depth++;
+      if (ch === endMap[startChar]) depth--;
+      if (depth === 0) {
+        const candidate = text.slice(startIdx, i + 1);
+        try {
+          JSON.parse(candidate);
+          return candidate;
+        } catch {
+          break;
+        }
+      }
+    }
+  }
+  return text; // fallback to raw text
+}
+
+/**
  * Parse a JSON string from LLM output, handling common formatting issues
  * (markdown code blocks, trailing commas, etc.)
  */
@@ -172,10 +220,10 @@ export function parseLLMJson<T = unknown>(text: string): T {
   try {
     return JSON.parse(cleaned) as T;
   } catch {
-    // Try to find JSON object or array in the text
-    const objectMatch = cleaned.match(/\{[\s\S]*\}/);
-    if (objectMatch?.[0]) {
-      return JSON.parse(objectMatch[0]) as T;
+    // Try to find JSON object or array using bracket matching
+    const extracted = extractJsonString(cleaned);
+    if (extracted !== cleaned) {
+      return JSON.parse(extracted) as T;
     }
 
     throw new Error(`Failed to parse JSON from LLM output: ${cleaned.substring(0, 100)}...`);

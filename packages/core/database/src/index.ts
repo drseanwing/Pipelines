@@ -196,7 +196,7 @@ export function createDatabase(overrides?: Partial<DatabaseConfig>): Database {
     port: Number(process.env.DB_PORT ?? 5432),
     database: process.env.DB_NAME ?? process.env.POSTGRES_DB ?? 'pipelines',
     user: process.env.DB_USER ?? process.env.POSTGRES_USER ?? 'pipelines',
-    password: process.env.DB_PASSWORD ?? process.env.POSTGRES_PASSWORD ?? '',
+    password: process.env.DB_PASSWORD ?? process.env.POSTGRES_PASSWORD ?? undefined,
     schema: process.env.DB_SCHEMA,
     ...overrides,
   });

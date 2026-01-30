@@ -59,18 +59,18 @@ services:
       - LOG_LEVEL=debug
     ports:
       - "5821:3000"
-      - "5822:9229"
+      - "127.0.0.1:5822:9229"
     volumes:
       - ../../apps/researchplanner/src:/app/src:ro
       - ../../apps/researchplanner/templates:/app/templates:ro
-    command: ["node", "--inspect=0.0.0.0:9229", "--watch", "src/index.ts"]
+    command: ["node", "--inspect=127.0.0.1:9229", "--watch", "src/index.ts"]
 
   # Postgres dev overrides - expose port for direct access
   postgres:
     ports:
       - "5810:5432"
     environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpassword}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
 
   # Redis dev overrides
   redis:

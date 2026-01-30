@@ -14,7 +14,7 @@ Use **project-prefixed environment variables** with the following convention:
 
 ### Shared Infrastructure (no prefix)
 - `POSTGRES_PASSWORD`, `POSTGRES_USER`, `POSTGRES_DB`
-- `REDIS_URL`
+- `REDIS_PASSWORD`
 - `OLLAMA_URL`
 - `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`
 

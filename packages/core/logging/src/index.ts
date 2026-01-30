@@ -60,7 +60,11 @@ export class Logger {
   private readonly jsonMode: boolean;
 
   constructor(options: LoggerOptions = {}) {
-    const envLevel = (typeof process !== 'undefined' && process.env?.LOG_LEVEL) as LogLevel | undefined;
+    const envLevelRaw = typeof process !== 'undefined' ? process.env?.LOG_LEVEL : undefined;
+    const validLevels: LogLevel[] = ['debug', 'info', 'warn', 'error'];
+    const envLevel = envLevelRaw && validLevels.includes(envLevelRaw.toLowerCase() as LogLevel)
+      ? (envLevelRaw.toLowerCase() as LogLevel)
+      : undefined;
     this.minLevel = LOG_LEVELS[options.level ?? envLevel ?? 'info'];
     this.stage = options.stage;
     this.correlationId = options.correlationId;

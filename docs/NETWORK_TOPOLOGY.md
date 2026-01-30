@@ -14,7 +14,7 @@
 
 | From \ To | PostgreSQL | Redis | Ollama | foam-n8n | qi-n8n | qi-app | slr-n8n | slr-worker | i-librarian |
 |-----------|-----------|-------|--------|----------|--------|--------|---------|------------|-------------|
-| foam-n8n | Yes | No | Yes | - | No | No | No | No | No |
+| foam-n8n | Yes | Yes | Yes | - | No | No | No | No | No |
 | qi-n8n | Yes | Yes | Yes | No | - | Yes | No | No | No |
 | qi-app | Yes | Yes | No | No | Yes | - | No | No | No |
 | slr-n8n | Yes | Yes | Yes | No | No | No | - | Yes | Yes |

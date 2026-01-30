@@ -68,7 +68,7 @@ services:
           cpus: '0.5'
           memory: 256M
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -187,7 +187,7 @@ services:
       - N8N_PROTOCOL=https
       - N8N_ENCRYPTION_KEY=${QI_N8N_ENCRYPTION_KEY}
       - N8N_USER_MANAGEMENT_JWT_SECRET=${QI_N8N_JWT_SECRET}
-      - WEBHOOK_URL=${QI_WEBHOOK_URL:-https://qi-pipeline.metronorth.health.qld.gov.au}
+      - WEBHOOK_URL=${QI_WEBHOOK_URL:-}
       - NODE_ENV=production
       - GENERIC_TIMEZONE=Australia/Brisbane
       - TZ=Australia/Brisbane
@@ -199,7 +199,6 @@ services:
       - DB_POSTGRESDB_USER=${POSTGRES_USER:-pipelines}
       - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
       - DB_POSTGRESDB_SCHEMA=qi_n8n
-      - DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED=false
       # Redis for queue mode
       - EXECUTIONS_MODE=queue
       - QUEUE_BULL_REDIS_HOST=redis

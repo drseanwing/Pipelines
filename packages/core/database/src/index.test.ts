@@ -60,4 +60,26 @@ describe('@pipelines/database', () => {
       expect(stats).toHaveProperty('waitingCount');
     });
   });
+
+  describe('validateSchemaName', () => {
+    it('should accept valid schema names', () => {
+      // Valid names should not throw during Database construction
+      expect(() => new Database({ host: 'localhost', port: 5432, database: 'test', user: 'test', password: 'test', schema: 'foam' })).not.toThrow();
+      expect(() => new Database({ host: 'localhost', port: 5432, database: 'test', user: 'test', password: 'test', schema: 'qi' })).not.toThrow();
+      expect(() => new Database({ host: 'localhost', port: 5432, database: 'test', user: 'test', password: 'test', schema: 'slr' })).not.toThrow();
+      expect(() => new Database({ host: 'localhost', port: 5432, database: 'test', user: 'test', password: 'test', schema: 'my_schema' })).not.toThrow();
+      expect(() => new Database({ host: 'localhost', port: 5432, database: 'test', user: 'test', password: 'test', schema: '_private' })).not.toThrow();
+    });
+
+    it('should reject SQL injection payloads', () => {
+      expect(() => new Database({ host: 'localhost', port: 5432, database: 'test', user: 'test', password: 'test', schema: "'; DROP TABLE users; --" })).toThrow();
+      expect(() => new Database({ host: 'localhost', port: 5432, database: 'test', user: 'test', password: 'test', schema: 'schema name' })).toThrow();
+      expect(() => new Database({ host: 'localhost', port: 5432, database: 'test', user: 'test', password: 'test', schema: 'schema;' })).toThrow();
+      expect(() => new Database({ host: 'localhost', port: 5432, database: 'test', user: 'test', password: 'test', schema: "schema'" })).toThrow();
+      expect(() => new Database({ host: 'localhost', port: 5432, database: 'test', user: 'test', password: 'test', schema: 'schema"' })).toThrow();
+      expect(() => new Database({ host: 'localhost', port: 5432, database: 'test', user: 'test', password: 'test', schema: 'schema-name' })).toThrow();
+      expect(() => new Database({ host: 'localhost', port: 5432, database: 'test', user: 'test', password: 'test', schema: '' })).toThrow();
+      expect(() => new Database({ host: 'localhost', port: 5432, database: 'test', user: 'test', password: 'test', schema: 'a'.repeat(64) })).toThrow();
+    });
+  });
 });

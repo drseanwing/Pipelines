@@ -10,7 +10,7 @@ import type { ZodSchema } from 'zod';
 
 export interface LLMConfig {
   /** Primary provider (default: 'anthropic') */
-  provider?: 'anthropic' | 'openai' | 'ollama';
+  provider?: 'anthropic';
   /** API key for the provider */
   apiKey?: string;
   /** Base URL for Ollama or custom endpoints */
@@ -87,19 +87,12 @@ export class LLMClient {
     const maxTokens = options?.maxTokens ?? this.config.maxTokens;
     const temperature = options?.temperature ?? this.config.temperature;
 
-    if (this.config.provider === 'anthropic') {
-      return this.chatAnthropic(messages, {
-        model,
-        maxTokens,
-        temperature,
-        systemPrompt: options?.systemPrompt,
-      });
-    }
-
-    throw new LLMError(
-      `Provider ${this.config.provider} not yet implemented`,
-      this.config.provider
-    );
+    return this.chatAnthropic(messages, {
+      model,
+      maxTokens,
+      temperature,
+      systemPrompt: options?.systemPrompt,
+    });
   }
 
   /**
@@ -113,10 +106,12 @@ export class LLMClient {
     }
   ): Promise<{ data: T; raw: LLMResponse }> {
     const systemAddendum = `\n\nYou MUST respond with valid JSON that matches the expected schema. Do not include any text before or after the JSON.`;
+    const basePrompt = options?.systemPrompt ?? '';
+    const systemPrompt = basePrompt ? `${basePrompt}\n\n${systemAddendum.trim()}` : systemAddendum.trim();
 
     const response = await this.chat(messages, {
       ...options,
-      systemPrompt: (options?.systemPrompt ?? '') + systemAddendum,
+      systemPrompt,
     });
 
     const parsed = this.extractJSON(response.content);
@@ -201,35 +196,77 @@ export class LLMClient {
         return JSON.parse(jsonMatch[1].trim());
       }
 
-      // Try to find JSON object or array in the text
-      const objectMatch = text.match(/\{[\s\S]*\}/);
-      if (objectMatch) {
-        return JSON.parse(objectMatch[0]);
+      // Try to find a complete JSON object by bracket matching
+      const startChars = ['{', '['];
+      const endMap: Record<string, string> = { '{': '}', '[': ']' };
+
+      for (const startChar of startChars) {
+        const startIdx = text.indexOf(startChar);
+        if (startIdx === -1) continue;
+
+        let depth = 0;
+        let inString = false;
+        let escaped = false;
+
+        for (let i = startIdx; i < text.length; i++) {
+          const ch = text[i];
+
+          if (escaped) {
+            escaped = false;
+            continue;
+          }
+
+          if (ch === '\\' && inString) {
+            escaped = true;
+            continue;
+          }
+
+          if (ch === '"') {
+            inString = !inString;
+            continue;
+          }
+
+          if (inString) continue;
+
+          if (ch === startChar) depth++;
+          if (ch === endMap[startChar]) depth--;
+
+          if (depth === 0) {
+            const candidate = text.slice(startIdx, i + 1);
+            try {
+              return JSON.parse(candidate);
+            } catch {
+              break; // Try next start character
+            }
+          }
+        }
       }
 
-      const arrayMatch = text.match(/\[[\s\S]*\]/);
-      if (arrayMatch) {
-        return JSON.parse(arrayMatch[0]);
-      }
-
-      throw new LLMError('Could not extract JSON from LLM response', this.config.provider ?? 'anthropic');
+      throw new LLMError('No valid JSON found in response', this.config.provider ?? 'anthropic');
     }
+  }
+
+  private sanitizeMessage(message: string): string {
+    // Redact Anthropic API key patterns
+    return message
+      .replace(/sk-ant-[a-zA-Z0-9\-_]{20,}/g, 'sk-ant-***REDACTED***')
+      .replace(/sk-[a-zA-Z0-9\-_]{20,}/g, 'sk-***REDACTED***');
   }
 
   private transformError(error: unknown): LLMError {
     if (error instanceof Anthropic.APIError) {
       const retryable = error.status === 429 || error.status === 500 || error.status === 529;
       return new LLMError(
-        error.message,
+        this.sanitizeMessage(error.message),
         'anthropic',
         error.status,
         retryable
       );
     }
     if (error instanceof Error) {
-      return new LLMError(error.message, this.config.provider ?? 'anthropic');
+      return new LLMError(this.sanitizeMessage(error.message), this.config.provider ?? 'anthropic');
     }
-    return new LLMError(String(error), this.config.provider ?? 'anthropic');
+    return new LLMError(this.sanitizeMessage(String(error)), this.config.provider ?? 'anthropic');
   }
 }
 

@@ -174,9 +174,14 @@ export async function withRetry<T>(
     } catch (error) {
       lastError = error;
 
-      // Don't retry on last attempt or non-retryable errors
-      if (attempt === maxRetries || !checkRetryable(error)) {
+      // Don't retry on non-retryable errors
+      if (!checkRetryable(error)) {
         throw error;
+      }
+
+      // Don't retry on last attempt, exit loop to throw RetryError
+      if (attempt === maxRetries) {
+        break;
       }
 
       const delay = calculateBackoff(attempt, options);
@@ -189,7 +194,7 @@ export async function withRetry<T>(
     }
   }
 
-  // Should not reach here, but TypeScript needs this
+  // All retries exhausted, wrap in RetryError
   throw new RetryError(
     `Failed after ${maxRetries + 1} attempts`,
     maxRetries + 1,

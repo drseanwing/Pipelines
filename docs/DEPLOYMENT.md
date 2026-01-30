@@ -68,4 +68,4 @@ docker compose -f infrastructure/docker/docker-compose.yml exec redis redis-cli 
 
 ## Backup
 
-TODO: Document automated backup procedures
+See [RUNBOOK.md](RUNBOOK.md#backuprestore) for detailed backup and restore procedures.
