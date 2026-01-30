@@ -110,7 +110,7 @@ services:
 
   # Adminer - Database Management UI
   adminer:
-    image: adminer:latest
+    image: adminer:4.8.1
     container_name: qi-pipeline-adminer
     restart: unless-stopped
     ports:
@@ -127,7 +127,7 @@ services:
 
   # Redis Commander - Redis Management UI
   redis-commander:
-    image: rediscommander/redis-commander:latest
+    image: rediscommander/redis-commander:0.8.1
     container_name: qi-pipeline-redis-commander
     restart: unless-stopped
     ports:
@@ -143,7 +143,7 @@ services:
 
   # MailHog - Email Testing
   mailhog:
-    image: mailhog/mailhog:latest
+    image: mailhog/mailhog:v1.0.1
     container_name: qi-pipeline-mailhog
     restart: unless-stopped
     ports:

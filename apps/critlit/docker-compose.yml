@@ -28,7 +28,7 @@ services:
       retries: 5
 
   n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:1.68.0
     container_name: slr_n8n
     environment:
       - N8N_BASIC_AUTH_ACTIVE=true
@@ -55,7 +55,7 @@ services:
         condition: service_started
 
   n8n-worker:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:1.68.0
     container_name: slr_n8n_worker
     command: n8n worker
     environment:
@@ -76,7 +76,7 @@ services:
   # Enables Claude and other AI assistants to interact with n8n workflows via stdio protocol
   # Connect via Docker exec or configure in Claude settings (no HTTP ports needed)
   n8n-mcp:
-    image: ghcr.io/czlonkowski/n8n-mcp:latest
+    image: ghcr.io/czlonkowski/n8n-mcp:0.1.0
     container_name: slr_n8n_mcp
     environment:
       - MCP_MODE=stdio
@@ -97,7 +97,7 @@ services:
       - redis_data:/data
 
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.5.4
     container_name: slr_ollama
     volumes:
       - ollama_data:/root/.ollama

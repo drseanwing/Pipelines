@@ -75,7 +75,7 @@ services:
       start_period: 5s
 
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.5.4
     container_name: pipelines-ollama
     restart: unless-stopped
     volumes:
@@ -106,7 +106,7 @@ services:
   # ===========================================================================
 
   foam-n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:1.68.0
     container_name: pipelines-foam-n8n
     restart: unless-stopped
     ports:
@@ -176,7 +176,7 @@ services:
   # ===========================================================================
 
   qi-n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:1.68.0
     container_name: pipelines-qi-n8n
     restart: unless-stopped
     ports:
@@ -315,7 +315,7 @@ services:
   # ===========================================================================
 
   slr-n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:1.68.0
     container_name: pipelines-slr-n8n
     restart: unless-stopped
     ports:
@@ -361,7 +361,7 @@ services:
       start_period: 30s
 
   slr-n8n-worker:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:1.68.0
     container_name: pipelines-slr-worker
     restart: unless-stopped
     command: n8n worker
@@ -395,7 +395,7 @@ services:
           memory: 2G
 
   slr-n8n-mcp:
-    image: ghcr.io/czlonkowski/n8n-mcp:latest
+    image: ghcr.io/czlonkowski/n8n-mcp:0.1.0
     container_name: pipelines-slr-mcp
     restart: unless-stopped
     environment:

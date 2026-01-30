@@ -16,7 +16,7 @@ services:
   # PROMETHEUS - Metrics Collection
   # =============================================================================
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.55.1
     container_name: foam-prometheus
     restart: always
     command:
@@ -41,7 +41,7 @@ services:
   # GRAFANA - Visualization Dashboard
   # =============================================================================
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.4.0
     container_name: foam-grafana
     restart: always
     ports:
@@ -74,7 +74,7 @@ services:
   # NODE EXPORTER - Host Metrics
   # =============================================================================
   node-exporter:
-    image: prom/node-exporter:latest
+    image: prom/node-exporter:v1.8.2
     container_name: foam-node-exporter
     restart: always
     command:
@@ -97,7 +97,7 @@ services:
   # POSTGRES EXPORTER - Database Metrics
   # =============================================================================
   postgres-exporter:
-    image: prometheuscommunity/postgres-exporter:latest
+    image: prometheuscommunity/postgres-exporter:v0.16.0
     container_name: foam-postgres-exporter
     restart: always
     ports:
@@ -118,7 +118,7 @@ services:
   # CADVISOR - Container Metrics
   # =============================================================================
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:latest
+    image: gcr.io/cadvisor/cadvisor:v0.50.0
     container_name: foam-cadvisor
     restart: always
     ports:

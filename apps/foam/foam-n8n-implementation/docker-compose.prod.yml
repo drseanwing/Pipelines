@@ -109,7 +109,7 @@ services:
   # N8N - Workflow Automation
   # ===========================================================================
   n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:1.68.0
     container_name: foam_n8n
     restart: always
     networks:
@@ -283,7 +283,7 @@ services:
   # Ollama - Local LLM Inference
   # ===========================================================================
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.5.4
     container_name: foam_ollama
     restart: always
     networks:
@@ -332,7 +332,7 @@ services:
   # ===========================================================================
   # Uncomment to add additional workers for heavy workloads
   # n8n-worker:
-  #   image: n8nio/n8n:latest
+  #   image: n8nio/n8n:1.68.0
   #   container_name: foam_n8n_worker
   #   restart: always
   #   networks:

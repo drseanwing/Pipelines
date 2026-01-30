@@ -7,7 +7,7 @@ services:
   # ===========================================================================
 
   adminer:
-    image: adminer:latest
+    image: adminer:4.8.1
     container_name: pipelines-adminer
     restart: unless-stopped
     ports:
@@ -20,7 +20,7 @@ services:
       - dev-tools
 
   redis-commander:
-    image: rediscommander/redis-commander:latest
+    image: rediscommander/redis-commander:0.8.1
     container_name: pipelines-redis-commander
     restart: unless-stopped
     ports:
@@ -33,7 +33,7 @@ services:
       - dev-tools
 
   mailhog:
-    image: mailhog/mailhog:latest
+    image: mailhog/mailhog:v1.0.1
     container_name: pipelines-mailhog
     restart: unless-stopped
     ports:

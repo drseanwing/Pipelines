@@ -7,7 +7,7 @@ version: '3.8'
 
 services:
   n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:1.68.0
     restart: always
     ports:
       - "5678:5678"
@@ -46,7 +46,7 @@ services:
       - ./config/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql
 
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.5.4
     restart: always
     ports:
       - "11434:11434"
