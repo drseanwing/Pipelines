@@ -39,6 +39,11 @@ Full codebase review completed across core packages, infrastructure, CI/CD, and 
 | B3 | llm-client | No tests for chat(), chatStructured(), extractJSON() | Added comprehensive mocked tests | 52ed6e8 |
 | B4 | pubmed | Regex-based XML parsing is unreliable | Replaced with fast-xml-parser | 163cb39 |
 | B6 | infrastructure | Docker images use :latest tags (31 instances) | Pinned all to specific versions | 09b7e60 |
+| B7 | infrastructure | No container hardening (security_opt, cap_drop) | Added to all production services | 67867e7 |
+| B8 | infrastructure | Redis Commander deployed without authentication | Added HTTP Basic Auth, localhost bind | 67867e7 |
+| B9 | infrastructure | Adminer deployed without access restrictions | Bound to localhost only | 67867e7 |
+| B10 | infrastructure | N8N metrics endpoints exposed without auth | Documented internal-only access | 67867e7 |
+| B11 | infrastructure | Prometheus --web.enable-lifecycle allows remote shutdown | Removed flag, added safe reload docs | 67867e7 |
 
 ### Remaining Backlog
 
@@ -48,12 +53,6 @@ Full codebase review completed across core packages, infrastructure, CI/CD, and 
 |---|------|-------|-------|
 | B1 | validation | zodToJsonSchema relies on Zod private internals (_def) | Consider replacing with zod-to-json-schema package |
 | B5 | n8n-utils | Object.assign merge silently drops duplicate keys | Document behavior or add collision detection |
-| B6 | infrastructure | Docker images use :latest tags (13 instances) | Pin to specific version tags |
-| B7 | infrastructure | No container hardening (security_opt, cap_drop) | Add to all production services |
-| B8 | infrastructure | Redis Commander deployed without authentication | Add HTTP auth or restrict access |
-| B9 | infrastructure | Adminer deployed without access restrictions | Bind to localhost only |
-| B10 | infrastructure | N8N metrics endpoints exposed without auth | Configure authenticated scraping |
-| B11 | infrastructure | Prometheus --web.enable-lifecycle allows remote shutdown | Remove flag or add auth |
 
 #### MEDIUM Priority
 
