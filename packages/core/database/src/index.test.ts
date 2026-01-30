@@ -1,10 +1,18 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Database, createDatabase } from './index.js';
 
 // Note: These tests validate the API surface without requiring a real database.
 // Integration tests with a real database are in the apps/ tests.
 
 describe('@pipelines/database', () => {
+  const dbInstances: Database[] = [];
+
+  // Clean up all database connections after each test
+  afterEach(async () => {
+    await Promise.all(dbInstances.map(db => db.close().catch(() => {})));
+    dbInstances.length = 0;
+  });
+
   describe('Database constructor', () => {
     it('creates a Database instance', () => {
       // This will create a pool but won't connect until a query is made
@@ -15,6 +23,7 @@ describe('@pipelines/database', () => {
         user: 'test',
         password: 'test',
       });
+      dbInstances.push(db);
       expect(db).toBeInstanceOf(Database);
     });
 
@@ -27,6 +36,7 @@ describe('@pipelines/database', () => {
         password: 'test',
         schema: 'foam',
       });
+      dbInstances.push(db);
       expect(db).toBeInstanceOf(Database);
     });
   });
@@ -40,6 +50,7 @@ describe('@pipelines/database', () => {
         user: 'testuser',
         password: 'testpass',
       });
+      dbInstances.push(db);
       expect(db).toBeInstanceOf(Database);
     });
   });
@@ -53,6 +64,7 @@ describe('@pipelines/database', () => {
         user: 'test',
         password: 'test',
       });
+      dbInstances.push(db);
 
       const stats = db.getPoolStats();
       expect(stats).toHaveProperty('totalCount');
