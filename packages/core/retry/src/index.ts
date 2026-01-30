@@ -194,9 +194,10 @@ export async function withRetry<T>(
     }
   }
 
-  // All retries exhausted, wrap in RetryError
+  // All retries exhausted, wrap in RetryError preserving original message
+  const originalMessage = lastError instanceof Error ? lastError.message : String(lastError);
   throw new RetryError(
-    `Failed after ${maxRetries + 1} attempts`,
+    originalMessage,
     maxRetries + 1,
     lastError
   );

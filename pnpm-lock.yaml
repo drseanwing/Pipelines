@@ -8,17 +8,89 @@ importers:
 
   .: {}
 
+  apps/critlit:
+    dependencies:
+      '@pipelines/checkpoint':
+        specifier: workspace:*
+        version: link:../../packages/core/checkpoint
+      '@pipelines/database':
+        specifier: workspace:*
+        version: link:../../packages/core/database
+      '@pipelines/logging':
+        specifier: workspace:*
+        version: link:../../packages/core/logging
+      '@pipelines/n8n-utils':
+        specifier: workspace:*
+        version: link:../../packages/core/n8n-utils
+      '@pipelines/pubmed':
+        specifier: workspace:*
+        version: link:../../packages/core/pubmed
+      '@pipelines/retry':
+        specifier: workspace:*
+        version: link:../../packages/core/retry
+      '@pipelines/validation':
+        specifier: workspace:*
+        version: link:../../packages/core/validation
+
+  apps/foam:
+    dependencies:
+      '@pipelines/llm-client':
+        specifier: workspace:*
+        version: link:../../packages/core/llm-client
+      '@pipelines/logging':
+        specifier: workspace:*
+        version: link:../../packages/core/logging
+      '@pipelines/n8n-utils':
+        specifier: workspace:*
+        version: link:../../packages/core/n8n-utils
+      '@pipelines/retry':
+        specifier: workspace:*
+        version: link:../../packages/core/retry
+      '@pipelines/validation':
+        specifier: workspace:*
+        version: link:../../packages/core/validation
+
   apps/ralph:
     dependencies:
       '@clack/prompts':
         specifier: ^0.7.0
         version: 0.7.0
+      '@pipelines/config':
+        specifier: workspace:*
+        version: link:../../packages/core/config
+      '@pipelines/logging':
+        specifier: workspace:*
+        version: link:../../packages/core/logging
 
   apps/researchplanner:
     dependencies:
       '@anthropic-ai/sdk':
         specifier: ^0.32.1
         version: 0.32.1
+      '@pipelines/checkpoint':
+        specifier: workspace:*
+        version: link:../../packages/core/checkpoint
+      '@pipelines/config':
+        specifier: workspace:*
+        version: link:../../packages/core/config
+      '@pipelines/database':
+        specifier: workspace:*
+        version: link:../../packages/core/database
+      '@pipelines/llm-client':
+        specifier: workspace:*
+        version: link:../../packages/core/llm-client
+      '@pipelines/logging':
+        specifier: workspace:*
+        version: link:../../packages/core/logging
+      '@pipelines/pubmed':
+        specifier: workspace:*
+        version: link:../../packages/core/pubmed
+      '@pipelines/retry':
+        specifier: workspace:*
+        version: link:../../packages/core/retry
+      '@pipelines/validation':
+        specifier: workspace:*
+        version: link:../../packages/core/validation
       docx:
         specifier: ^9.0.2
         version: 9.5.1
@@ -73,13 +145,6 @@ importers:
         version: 2.1.9(@types/node@22.19.7)
 
   packages/core/checkpoint:
-    dependencies:
-      '@pipelines/database':
-        specifier: workspace:*
-        version: link:../database
-      '@pipelines/logging':
-        specifier: workspace:*
-        version: link:../logging
     devDependencies:
       typescript:
         specifier: ^5.7.3
@@ -106,19 +171,13 @@ importers:
 
   packages/core/database:
     dependencies:
-      '@pipelines/config':
-        specifier: workspace:*
-        version: link:../config
-      '@pipelines/logging':
-        specifier: workspace:*
-        version: link:../logging
-      '@pipelines/retry':
-        specifier: workspace:*
-        version: link:../retry
       pg:
         specifier: ^8.13.1
         version: 8.17.2
     devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.30
       '@types/pg':
         specifier: ^8.11.10
         version: 8.16.0
@@ -127,25 +186,16 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^2.1.8
-        version: 2.1.9(@types/node@24.10.9)
+        version: 2.1.9(@types/node@20.19.30)
 
   packages/core/llm-client:
     dependencies:
       '@anthropic-ai/sdk':
         specifier: ^0.32.1
         version: 0.32.1
-      '@pipelines/config':
-        specifier: workspace:*
-        version: link:../config
-      '@pipelines/logging':
-        specifier: workspace:*
-        version: link:../logging
-      '@pipelines/retry':
-        specifier: workspace:*
-        version: link:../retry
-      '@pipelines/validation':
-        specifier: workspace:*
-        version: link:../validation
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
     devDependencies:
       typescript:
         specifier: ^5.7.3
@@ -155,10 +205,6 @@ importers:
         version: 2.1.9(@types/node@24.10.9)
 
   packages/core/logging:
-    dependencies:
-      '@pipelines/config':
-        specifier: workspace:*
-        version: link:../config
     devDependencies:
       typescript:
         specifier: ^5.7.3
@@ -168,16 +214,6 @@ importers:
         version: 2.1.9(@types/node@24.10.9)
 
   packages/core/n8n-utils:
-    dependencies:
-      '@pipelines/checkpoint':
-        specifier: workspace:*
-        version: link:../checkpoint
-      '@pipelines/logging':
-        specifier: workspace:*
-        version: link:../logging
-      '@pipelines/validation':
-        specifier: workspace:*
-        version: link:../validation
     devDependencies:
       typescript:
         specifier: ^5.7.3
@@ -187,19 +223,6 @@ importers:
         version: 2.1.9(@types/node@24.10.9)
 
   packages/core/pubmed:
-    dependencies:
-      '@pipelines/config':
-        specifier: workspace:*
-        version: link:../config
-      '@pipelines/logging':
-        specifier: workspace:*
-        version: link:../logging
-      '@pipelines/retry':
-        specifier: workspace:*
-        version: link:../retry
-      fast-xml-parser:
-        specifier: ^4.5.0
-        version: 4.5.3
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
@@ -212,10 +235,6 @@ importers:
         version: 2.1.9(@types/node@20.19.30)
 
   packages/core/retry:
-    dependencies:
-      '@pipelines/logging':
-        specifier: workspace:*
-        version: link:../logging
     devDependencies:
       typescript:
         specifier: ^5.7.3

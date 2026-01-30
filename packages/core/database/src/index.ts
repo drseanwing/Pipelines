@@ -41,7 +41,7 @@ export class Database {
     this.schema = config.schema;
 
     // Validate schema name to prevent SQL injection
-    if (this.schema) {
+    if (this.schema !== undefined) {
       this.validateSchemaName(this.schema);
     }
 
