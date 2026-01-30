@@ -10,6 +10,14 @@ services:
     image: prom/prometheus:v2.55.1
     container_name: pipelines-prometheus
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
     ports:
       - "5813:9090"
     volumes:
@@ -18,7 +26,8 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.retention.time=30d'
-      - '--web.enable-lifecycle'
+      # Note: --web.enable-lifecycle removed for security (allows remote config reload)
+      # To reload config: docker exec pipelines-prometheus kill -HUP 1
     networks:
       - shared
       - monitoring
@@ -32,6 +41,15 @@ services:
     image: grafana/grafana:11.4.0
     container_name: pipelines-grafana
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - NET_BIND_SERVICE
     ports:
       - "5814:3000"
     environment:
@@ -49,6 +67,10 @@ services:
     image: prom/node-exporter:v1.8.2
     container_name: pipelines-node-exporter
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     ports:
       - "5840:9100"
     networks:
@@ -63,6 +85,10 @@ services:
     image: quay.io/prometheuscommunity/postgres-exporter:v0.16.0
     container_name: pipelines-postgres-exporter
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     ports:
       - "5841:9187"
     environment:
@@ -78,6 +104,12 @@ services:
     image: gcr.io/cadvisor/cadvisor:v0.50.0
     container_name: pipelines-cadvisor
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SYS_ADMIN
     ports:
       - "5842:8080"
     volumes:

@@ -11,7 +11,7 @@ services:
     container_name: pipelines-adminer
     restart: unless-stopped
     ports:
-      - "5823:8080"
+      - "127.0.0.1:5823:8080"  # Bind to localhost only for security
     environment:
       - ADMINER_DEFAULT_SERVER=postgres
     networks:
@@ -24,9 +24,11 @@ services:
     container_name: pipelines-redis-commander
     restart: unless-stopped
     ports:
-      - "5824:8081"
+      - "127.0.0.1:5824:8081"  # Bind to localhost only for security
     environment:
-      - REDIS_HOSTS=local:redis:6379
+      - REDIS_HOSTS=local:redis:6379:0:${REDIS_PASSWORD}
+      - HTTP_USER=${REDIS_COMMANDER_USER:-admin}
+      - HTTP_PASSWORD=${REDIS_COMMANDER_PASSWORD}
     networks:
       - shared
     profiles:
