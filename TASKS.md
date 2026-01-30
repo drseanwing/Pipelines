@@ -31,6 +31,14 @@ Full codebase review completed across core packages, infrastructure, CI/CD, and 
 | 21 | MEDIUM | docs | ADR-003 referenced REDIS_URL instead of REDIS_PASSWORD | FIXED |
 | 22 | MEDIUM | docs | DEPLOYMENT.md had TODO instead of RUNBOOK link | FIXED |
 
+### Completed
+
+| # | Area | Issue | Resolution | Commit |
+|---|------|-------|------------|--------|
+| B2 | database | Tests create connection pools but never close them | Added afterEach cleanup hook | 1d69e71 |
+| B3 | llm-client | No tests for chat(), chatStructured(), extractJSON() | Added comprehensive mocked tests | 52ed6e8 |
+| B4 | pubmed | Regex-based XML parsing is unreliable | Replaced with fast-xml-parser | 163cb39 |
+
 ### Remaining Backlog
 
 #### HIGH Priority
@@ -38,9 +46,6 @@ Full codebase review completed across core packages, infrastructure, CI/CD, and 
 | # | Area | Issue | Notes |
 |---|------|-------|-------|
 | B1 | validation | zodToJsonSchema relies on Zod private internals (_def) | Consider replacing with zod-to-json-schema package |
-| B2 | database | Tests create connection pools but never close them | Add afterEach/afterAll cleanup hooks |
-| B3 | llm-client | No tests for chat(), chatStructured(), extractJSON() | Need mocked Anthropic SDK tests |
-| B4 | pubmed | Regex-based XML parsing is unreliable | Consider adding fast-xml-parser dependency |
 | B5 | n8n-utils | Object.assign merge silently drops duplicate keys | Document behavior or add collision detection |
 | B6 | infrastructure | Docker images use :latest tags (13 instances) | Pin to specific version tags |
 | B7 | infrastructure | No container hardening (security_opt, cap_drop) | Add to all production services |
