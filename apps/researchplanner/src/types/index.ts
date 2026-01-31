@@ -17,3 +17,6 @@ export * from './methodology.js';
 export * from './ethics.js';
 export * from './documents.js';
 export * from './audit.js';
+
+// Re-export commonly used types from other modules
+export type { CitationStyle } from '../llm/prompts/documents.js';

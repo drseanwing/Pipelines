@@ -671,7 +671,7 @@ export function getDocumentContentMapping(docType: DocumentType): Record<string,
         templateSection: 'section_6'
       },
       'data_management': {
-        source: ['ethics.dataGovernance'],
+        source: ['ethics.data_governance'],
         templateSection: 'section_10'
       },
       'ethical_considerations': {

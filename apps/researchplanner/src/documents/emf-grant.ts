@@ -30,7 +30,7 @@ import {
   VerticalAlign,
 } from 'docx';
 import { DocumentGenerator } from './engine.js';
-import { buildSection, buildSimpleTable, buildBulletList } from './sections.js';
+import { buildSection, markdownToParagraphs, buildSimpleTable, buildBulletList } from './sections.js';
 import { callLLM } from '../utils/llm.js';
 import type { IntakeData } from '../types/project.js';
 import type { ResearchResults } from '../types/research.js';
@@ -201,19 +201,19 @@ export class EMFGrantGenerator extends DocumentGenerator {
         heading: HeadingLevel.HEADING_2,
         spacing: { before: 240, after: 120 },
       }),
-      ...buildSection(plainLanguageSummary),
+      ...markdownToParagraphs(plainLanguageSummary),
       new Paragraph({
         text: 'A5. Scientific Abstract (450 words)',
         heading: HeadingLevel.HEADING_2,
         spacing: { before: 240, after: 120 },
       }),
-      ...buildSection(scientificAbstract),
+      ...markdownToParagraphs(scientificAbstract),
       new Paragraph({
         text: 'A6. Emergency Medicine Relevance (100 words)',
         heading: HeadingLevel.HEADING_2,
         spacing: { before: 240, after: 120 },
       }),
-      ...buildSection(emRelevance),
+      ...markdownToParagraphs(emRelevance),
       new Paragraph({
         text: 'A7. Research Themes',
         heading: HeadingLevel.HEADING_2,
@@ -238,31 +238,31 @@ export class EMFGrantGenerator extends DocumentGenerator {
         heading: HeadingLevel.HEADING_2,
         spacing: { before: 240, after: 120 },
       }),
-      ...buildSection(backgroundRationale),
+      ...markdownToParagraphs(backgroundRationale),
       new Paragraph({
         text: 'B2. Aims and Objectives (300 words)',
         heading: HeadingLevel.HEADING_2,
         spacing: { before: 240, after: 120 },
       }),
-      ...buildSection(aimsObjectives),
+      ...markdownToParagraphs(aimsObjectives),
       new Paragraph({
         text: 'B3. Study Design and Methods (2000 words)',
         heading: HeadingLevel.HEADING_2,
         spacing: { before: 240, after: 120 },
       }),
-      ...buildSection(designMethods),
+      ...markdownToParagraphs(designMethods),
       new Paragraph({
         text: 'B4. Innovation and Impact (750 words)',
         heading: HeadingLevel.HEADING_2,
         spacing: { before: 240, after: 120 },
       }),
-      ...buildSection(innovationImpact),
+      ...markdownToParagraphs(innovationImpact),
       new Paragraph({
         text: 'B5. Translation and Dissemination Plan (400 words)',
         heading: HeadingLevel.HEADING_2,
         spacing: { before: 240, after: 120 },
       }),
-      ...buildSection(translationPlan)
+      ...markdownToParagraphs(translationPlan)
     );
 
     // PART C: Ethics and Governance
@@ -290,7 +290,7 @@ export class EMFGrantGenerator extends DocumentGenerator {
         heading: HeadingLevel.HEADING_2,
         spacing: { before: 240, after: 120 },
       }),
-      ...buildSection(indigenousRelevance)
+      ...markdownToParagraphs(indigenousRelevance)
     );
 
     // PART D: Health Economics (conditional)

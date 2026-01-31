@@ -13,7 +13,7 @@ import type { Project } from '../types/project.js';
 import type { Methodology } from '../types/methodology.js';
 import type { EthicsEvaluation } from '../types/ethics.js';
 import type { ResearchResults } from '../types/research.js';
-import type { DocumentType } from '../types/documents.js';
+import { DocumentType } from '../types/documents.js';
 import { generateProtocol } from './protocol.js';
 import { generatePICF } from './picf.js';
 import { generateHRECCoverLetter } from './cover-letter.js';
@@ -105,20 +105,20 @@ export function determineRequiredDocuments(
   // Protocol is always required
   if (project.classification.project_type === 'RESEARCH') {
     required.push({
-      document_type: 'RESEARCH_PROTOCOL',
+      document_type: DocumentType.RESEARCH_PROTOCOL,
       required: true,
       reason: 'Research project requires full protocol',
     });
   } else if (project.classification.project_type === 'QI') {
     required.push({
-      document_type: 'QI_PROJECT_PLAN',
+      document_type: DocumentType.QI_PROJECT_PLAN,
       required: true,
       reason: 'QI project requires project plan',
     });
   } else {
     // Hybrid
     required.push({
-      document_type: 'RESEARCH_PROTOCOL',
+      document_type: DocumentType.RESEARCH_PROTOCOL,
       required: true,
       reason: 'Hybrid project requires full protocol',
     });
@@ -128,7 +128,7 @@ export function determineRequiredDocuments(
   if (project.classification.project_type !== 'QI' ||
       ethics.ethics_pathway.pathway === 'FULL_HREC_REVIEW') {
     required.push({
-      document_type: 'PICF',
+      document_type: DocumentType.PICF,
       required: true,
       reason: 'Research project requires participant information and consent',
     });
@@ -137,7 +137,7 @@ export function determineRequiredDocuments(
   // Cover letter required for HREC submissions
   if (ethics.ethics_pathway.requires_hrec) {
     required.push({
-      document_type: 'HREC_COVER_LETTER',
+      document_type: DocumentType.HREC_COVER_LETTER,
       required: true,
       reason: 'HREC submission requires cover letter',
     });
@@ -146,7 +146,7 @@ export function determineRequiredDocuments(
   // Data management plan required for research
   if (project.classification.project_type !== 'QI') {
     required.push({
-      document_type: 'DATA_MANAGEMENT_PLAN',
+      document_type: DocumentType.DATA_MANAGEMENT_PLAN,
       required: true,
       reason: 'Research project requires data management plan',
     });
@@ -155,7 +155,7 @@ export function determineRequiredDocuments(
   // EMF application if grant target specified
   if (project.intake.grant_target?.startsWith('EMF_')) {
     required.push({
-      document_type: 'EMF_APPLICATION',
+      document_type: DocumentType.EMF_APPLICATION,
       required: true,
       reason: 'EMF grant application required for EMF funding',
     });
@@ -164,7 +164,7 @@ export function determineRequiredDocuments(
   // Site assessment for multi-site studies
   if (project.methodology?.setting_sites && project.methodology.setting_sites.length > 1) {
     optional.push({
-      document_type: 'SITE_ASSESSMENT',
+      document_type: DocumentType.SITE_ASSESSMENT,
       required: false,
       reason: 'Multi-site study may require site assessment forms',
     });
@@ -173,7 +173,7 @@ export function determineRequiredDocuments(
   // LNR application for low/negligible risk
   if (ethics.ethics_pathway.pathway === 'LOW_RISK_RESEARCH') {
     optional.push({
-      document_type: 'LNR_APPLICATION',
+      document_type: DocumentType.LNR_APPLICATION,
       required: false,
       reason: 'Low-risk pathway uses streamlined application',
     });
@@ -266,11 +266,13 @@ export function getGenerationOrder(requirements: DocumentRequirement[]): Documen
 
     // Add first available
     const next = canGenerate[0];
-    order.push(next.document_type);
-    generated.add(next.document_type);
+    if (next) {
+      order.push(next.document_type);
+      generated.add(next.document_type);
 
-    const index = remaining.indexOf(next);
-    remaining.splice(index, 1);
+      const index = remaining.indexOf(next);
+      remaining.splice(index, 1);
+    }
   }
 
   return order;
@@ -376,36 +378,36 @@ async function generateDocument(
   let filename: string;
 
   switch (type) {
-    case 'RESEARCH_PROTOCOL':
-    case 'QI_PROJECT_PLAN':
+    case DocumentType.RESEARCH_PROTOCOL:
+    case DocumentType.QI_PROJECT_PLAN:
       buffer = await generateProtocol(project, research, methodology, ethics);
       filename = `protocol-${project.id}.docx`;
       break;
 
-    case 'PICF':
+    case DocumentType.PICF:
       buffer = await generatePICF(project, methodology, ethics);
       filename = `picf-${project.id}.docx`;
       break;
 
-    case 'DATA_MANAGEMENT_PLAN':
+    case DocumentType.DATA_MANAGEMENT_PLAN:
       // Placeholder - would call DMP generator when implemented
       buffer = await generatePlaceholderDocument('Data Management Plan');
       filename = `dmp-${project.id}.docx`;
       break;
 
-    case 'HREC_COVER_LETTER':
+    case DocumentType.HREC_COVER_LETTER:
       {
         const attachments = generatedDocuments
-          .filter(d => d.type !== 'HREC_COVER_LETTER')
+          .filter(d => d.type !== DocumentType.HREC_COVER_LETTER)
           .map(d => d.filename);
         buffer = await generateHRECCoverLetter(project, ethics, attachments);
         filename = `cover-letter-${project.id}.docx`;
       }
       break;
 
-    case 'EMF_APPLICATION':
+    case DocumentType.EMF_APPLICATION:
       {
-        const generator = new EMFGrantGenerator();
+        const generator = new EMFGrantGenerator(project.id);
         buffer = await generator.generateEMFApplication(
           project.intake,
           research,
@@ -417,8 +419,8 @@ async function generateDocument(
       break;
 
     // Document types that need manual creation or are not yet implemented
-    case 'SITE_ASSESSMENT':
-    case 'LNR_APPLICATION':
+    case DocumentType.SITE_ASSESSMENT:
+    case DocumentType.LNR_APPLICATION:
       // These documents would be implemented in future modules
       return null;
 
@@ -588,7 +590,7 @@ async function createZipArchive(sourceDir: string, outputPath: string): Promise<
     const archive = archiver('zip', { zlib: { level: 9 } });
 
     output.on('close', () => resolve());
-    archive.on('error', (err) => reject(err));
+    archive.on('error', (err: Error) => reject(err));
 
     archive.pipe(output);
     archive.directory(sourceDir, basename(sourceDir));
@@ -627,9 +629,9 @@ export function validateCrossReferences(documents: GeneratedDocument[]): string[
   if (documents.length > 1) {
     // Basic validation - ensure all documents exist
     const hasProtocol = documents.some(d =>
-      d.type === 'RESEARCH_PROTOCOL' || d.type === 'QI_PROJECT_PLAN'
+      d.type === DocumentType.RESEARCH_PROTOCOL || d.type === DocumentType.QI_PROJECT_PLAN
     );
-    const hasPICF = documents.some(d => d.type === 'PICF');
+    const hasPICF = documents.some(d => d.type === DocumentType.PICF);
 
     if (hasProtocol && hasPICF) {
       // Would validate that PICF references correct protocol version

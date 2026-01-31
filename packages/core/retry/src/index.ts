@@ -42,7 +42,7 @@ export function classifyError(error: unknown): ErrorType {
   if (!(error instanceof Error)) return ErrorTypes.UNKNOWN;
 
   const message = error.message.toLowerCase();
-  const errAny = error as Record<string, unknown>;
+  const errAny = error as unknown as Record<string, unknown>;
 
   // HTTP status code based classification
   const status = errAny.status ?? errAny.statusCode ?? errAny.code;
@@ -87,12 +87,13 @@ export function classifyError(error: unknown): ErrorType {
  */
 export function isRetryableError(error: unknown): boolean {
   const errorType = classifyError(error);
-  return [
+  const retryableTypes: ErrorType[] = [
     ErrorTypes.RATE_LIMIT,
     ErrorTypes.TIMEOUT,
     ErrorTypes.SERVER_ERROR,
     ErrorTypes.NETWORK_ERROR,
-  ].includes(errorType);
+  ];
+  return retryableTypes.includes(errorType);
 }
 
 /**

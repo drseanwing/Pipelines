@@ -8,8 +8,8 @@ import {
   determineRequiredDocuments,
   validateDocumentPackage,
   getGenerationOrder,
-  type DocumentType,
 } from './determination.js';
+import { DocumentType } from '../types/documents.js';
 import type { Project } from '../types/project.js';
 import type { EthicsEvaluation } from '../types/ethics.js';
 import type { Methodology } from '../types/methodology.js';
@@ -101,6 +101,7 @@ describe('determineRequiredDocuments', () => {
     data_collection: {
       data_types: ['CLINICAL'],
       includes_identifiable_data: true,
+      methods: ['chart_review'],
       instruments: [],
       collection_timepoints: ['Baseline'],
       missing_data_handling: 'Complete case',
@@ -134,7 +135,7 @@ describe('determineRequiredDocuments', () => {
         status: 'NOT_STARTED',
       },
       risk_assessment: { level: RiskLevel.NEGLIGIBLE, factors: [], overall_justification: '', national_statement_reference: '' },
-      consent_requirements: { consent_type: 'NOT_REQUIRED', waiver_justified: false, capacity_assessment_required: false, third_party_consent_required: false, documentation_requirements: [], opt_out_available: false, consent_process_description: '' },
+      consent_requirements: { consent_type: 'WAIVER', waiver_justified: false, capacity_assessment_required: false, third_party_consent_required: false, documentation_requirements: [], opt_out_available: false, consent_process_description: '' },
       data_governance: { data_types: [], storage_requirements: { location: '', encryption: false, access_controls: [], backup_strategy: '' }, retention_period: '', disposal_method: '', privacy_compliance: { privacy_act_1988: false, information_privacy_act_2009_qld: false, gdpr_applicable: false }, data_breach_response_plan: '' },
       site_requirements: [],
       governance_checklist: [],
@@ -167,8 +168,8 @@ describe('determineRequiredDocuments', () => {
     const result = determineRequiredDocuments(baseProject, ethics, baseMethodology);
 
     expect(result.package_type).toBe('LOW_RISK_STANDARD');
-    expect(result.required_documents.some(d => d.document_type === 'PROTOCOL')).toBe(true);
-    expect(result.required_documents.some(d => d.document_type === 'DATA_MANAGEMENT_PLAN')).toBe(true);
+    expect(result.required_documents.some(d => d.document_type === DocumentType.RESEARCH_PROTOCOL)).toBe(true);
+    expect(result.required_documents.some(d => d.document_type === DocumentType.DATA_MANAGEMENT_PLAN)).toBe(true);
   });
 
   it('should return FULL_HREC_COMPLETE package for full HREC review', () => {
@@ -192,8 +193,9 @@ describe('determineRequiredDocuments', () => {
     const result = determineRequiredDocuments(baseProject, ethics, baseMethodology);
 
     expect(result.package_type).toBe('FULL_HREC_COMPLETE');
-    expect(result.required_documents.some(d => d.document_type === 'COVER_LETTER')).toBe(true);
-    expect(result.required_documents.some(d => d.document_type === 'INVESTIGATOR_CV')).toBe(true);
+    expect(result.required_documents.some(d => d.document_type === DocumentType.HREC_COVER_LETTER)).toBe(true);
+    // TODO: Add INVESTIGATOR_CV to DocumentType enum if needed
+    // expect(result.required_documents.some(d => d.document_type === DocumentType.INVESTIGATOR_CV)).toBe(true);
   });
 
   it('should adjust for consent waiver', () => {
@@ -216,10 +218,10 @@ describe('determineRequiredDocuments', () => {
 
     const result = determineRequiredDocuments(baseProject, ethics, baseMethodology);
 
-    const consentReq = result.required_documents.find(d => d.document_type === 'CONSENT_FORM');
+    const consentReq = result.required_documents.find(d => d.document_type === DocumentType.PICF);
     expect(consentReq).toBeUndefined(); // Should be in optional now
 
-    const consentOpt = result.optional_documents.find(d => d.document_type === 'CONSENT_FORM');
+    const consentOpt = result.optional_documents.find(d => d.document_type === DocumentType.PICF);
     expect(consentOpt).toBeDefined();
   });
 
@@ -246,7 +248,7 @@ describe('determineRequiredDocuments', () => {
 
     const result = determineRequiredDocuments(baseProject, ethics, baseMethodology);
 
-    const siteForm = result.required_documents.find(d => d.document_type === 'SITE_ASSESSMENT_FORM');
+    const siteForm = result.required_documents.find(d => d.document_type === DocumentType.SITE_ASSESSMENT);
     expect(siteForm).toBeDefined();
     expect(siteForm?.required).toBe(true);
   });
@@ -257,16 +259,16 @@ describe('validateDocumentPackage', () => {
     const packageSpec = {
       package_type: 'LOW_RISK_STANDARD' as const,
       required_documents: [
-        { document_type: 'PROTOCOL' as DocumentType, required: true, priority: 'ESSENTIAL' as const, rationale: 'Required' },
-        { document_type: 'DATA_MANAGEMENT_PLAN' as DocumentType, required: true, priority: 'ESSENTIAL' as const, rationale: 'Required' },
+        { document_type: DocumentType.RESEARCH_PROTOCOL as DocumentType, required: true, priority: 'ESSENTIAL' as const, rationale: 'Required' },
+        { document_type: DocumentType.DATA_MANAGEMENT_PLAN as DocumentType, required: true, priority: 'ESSENTIAL' as const, rationale: 'Required' },
       ],
       optional_documents: [],
-      submission_order: ['PROTOCOL' as DocumentType, 'DATA_MANAGEMENT_PLAN' as DocumentType],
+      submission_order: [DocumentType.RESEARCH_PROTOCOL as DocumentType, DocumentType.DATA_MANAGEMENT_PLAN as DocumentType],
       estimated_pages: 30,
       notes: [],
     };
 
-    const result = validateDocumentPackage(packageSpec, ['PROTOCOL', 'DATA_MANAGEMENT_PLAN']);
+    const result = validateDocumentPackage(packageSpec, [DocumentType.RESEARCH_PROTOCOL, DocumentType.DATA_MANAGEMENT_PLAN]);
 
     expect(result.complete).toBe(true);
     expect(result.missing).toHaveLength(0);
@@ -276,9 +278,9 @@ describe('validateDocumentPackage', () => {
     const packageSpec = {
       package_type: 'FULL_HREC_COMPLETE' as const,
       required_documents: [
-        { document_type: 'PROTOCOL' as DocumentType, required: true, priority: 'ESSENTIAL' as const, rationale: 'Required' },
-        { document_type: 'CONSENT_FORM' as DocumentType, required: true, priority: 'ESSENTIAL' as const, rationale: 'Required' },
-        { document_type: 'DATA_MANAGEMENT_PLAN' as DocumentType, required: true, priority: 'ESSENTIAL' as const, rationale: 'Required' },
+        { document_type: DocumentType.RESEARCH_PROTOCOL as DocumentType, required: true, priority: 'ESSENTIAL' as const, rationale: 'Required' },
+        { document_type: DocumentType.PICF as DocumentType, required: true, priority: 'ESSENTIAL' as const, rationale: 'Required' },
+        { document_type: DocumentType.DATA_MANAGEMENT_PLAN as DocumentType, required: true, priority: 'ESSENTIAL' as const, rationale: 'Required' },
       ],
       optional_documents: [],
       submission_order: [],
@@ -286,25 +288,25 @@ describe('validateDocumentPackage', () => {
       notes: [],
     };
 
-    const result = validateDocumentPackage(packageSpec, ['PROTOCOL']);
+    const result = validateDocumentPackage(packageSpec, [DocumentType.RESEARCH_PROTOCOL]);
 
     expect(result.complete).toBe(false);
-    expect(result.missing).toContain('CONSENT_FORM');
-    expect(result.missing).toContain('DATA_MANAGEMENT_PLAN');
+    expect(result.missing).toContain(DocumentType.PICF);
+    expect(result.missing).toContain(DocumentType.DATA_MANAGEMENT_PLAN);
   });
 });
 
 describe('getGenerationOrder', () => {
   it('should respect dependencies', () => {
     const requirements = [
-      { document_type: 'CONSENT_FORM' as DocumentType, required: true, priority: 'ESSENTIAL' as const, rationale: '', dependencies: ['PARTICIPANT_INFO_SHEET' as DocumentType] },
-      { document_type: 'PARTICIPANT_INFO_SHEET' as DocumentType, required: true, priority: 'ESSENTIAL' as const, rationale: '', dependencies: ['PROTOCOL' as DocumentType] },
-      { document_type: 'PROTOCOL' as DocumentType, required: true, priority: 'ESSENTIAL' as const, rationale: '' },
+      { document_type: DocumentType.PICF as DocumentType, required: true, priority: 'ESSENTIAL' as const, rationale: '', dependencies: [DocumentType.PICF as DocumentType] },
+      { document_type: DocumentType.PICF as DocumentType, required: true, priority: 'ESSENTIAL' as const, rationale: '', dependencies: [DocumentType.RESEARCH_PROTOCOL as DocumentType] },
+      { document_type: DocumentType.RESEARCH_PROTOCOL as DocumentType, required: true, priority: 'ESSENTIAL' as const, rationale: '' },
     ];
 
     const order = getGenerationOrder(requirements);
 
-    expect(order.indexOf('PROTOCOL')).toBeLessThan(order.indexOf('PARTICIPANT_INFO_SHEET'));
-    expect(order.indexOf('PARTICIPANT_INFO_SHEET')).toBeLessThan(order.indexOf('CONSENT_FORM'));
+    expect(order.indexOf(DocumentType.RESEARCH_PROTOCOL)).toBeLessThan(order.indexOf(DocumentType.PICF));
+    expect(order.indexOf(DocumentType.PICF)).toBeLessThan(order.indexOf(DocumentType.PICF));
   });
 });

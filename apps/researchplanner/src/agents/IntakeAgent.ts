@@ -117,7 +117,7 @@ export class IntakeAgentError extends Error {
  * // Process the complete intake
  * const project = await intakeAgent.processIntake(validation.data!, userId);
  * console.log('Created project:', project.id);
- * console.log('Classification:', project.classification.projectType);
+ * console.log('Classification:', project.classification.project_type);
  * ```
  */
 export class IntakeAgent {
@@ -306,7 +306,7 @@ export class IntakeAgent {
    * ```typescript
    * const classification = await intakeAgent.classifyProject(intakeData);
    *
-   * console.log('Type:', classification.projectType);
+   * console.log('Type:', classification.project_type);
    * console.log('Confidence:', classification.confidence);
    * console.log('Reasoning:', classification.reasoning);
    * console.log('Suggested designs:', classification.suggestedDesigns);
@@ -433,7 +433,7 @@ export class IntakeAgent {
     }
 
     // Check timeline constraints if grant target is specified
-    if (intakeData.grantTarget && !intakeData.timelineConstraint?.submissionDeadline) {
+    if (intakeData.grant_target && !intakeData.timelineConstraint?.submissionDeadline) {
       errors.push({
         field: 'timelineConstraint.submissionDeadline',
         message: 'Submission deadline is recommended when targeting a grant',
@@ -450,7 +450,7 @@ export class IntakeAgent {
     const hasQIKeywords = qiKeywords.some((kw) => descLower.includes(kw));
     const hasResearchKeywords = researchKeywords.some((kw) => descLower.includes(kw));
 
-    if (intakeData.projectType === 'QI' && hasResearchKeywords && !hasQIKeywords) {
+    if (intakeData.project_type === 'QI' && hasResearchKeywords && !hasQIKeywords) {
       errors.push({
         field: 'projectType',
         message: 'Project description suggests research characteristics but QI was selected. Please review classification.',
@@ -468,11 +468,11 @@ export class IntakeAgent {
     // Check if we can map this to a known design type
     const designMatrix = STUDY_DESIGN_MATRIX;
 
-    if (classification.projectType === 'QI') {
+    if (classification.project_type === 'QI') {
       return designMatrix.QI.reportingGuideline;
     }
 
-    if (classification.projectType === 'HYBRID') {
+    if (classification.project_type === 'HYBRID') {
       return designMatrix.HYBRID.reportingGuideline;
     }
 
@@ -526,7 +526,7 @@ export class IntakeAgent {
     // Use the ethics pathway recommendation from classification prompts
     // Create a minimal classification output for the helper function
     const classificationOutput: ClassificationOutput = {
-      classification: classification.projectType,
+      classification: classification.project_type,
       confidence: classification.confidence,
       reasoning: classification.reasoning,
       suggestedDesigns: classification.suggestedDesigns,
@@ -547,12 +547,12 @@ export class IntakeAgent {
     intakeData: IntakeData
   ): 'QI_REGISTRATION' | 'LOW_RISK_RESEARCH' | 'FULL_HREC_REVIEW' | 'HYBRID_REVIEW' {
     // QI projects typically use QI registration
-    if (classification.projectType === 'QI') {
+    if (classification.project_type === 'QI') {
       return 'QI_REGISTRATION';
     }
 
     // Hybrid projects need hybrid review
-    if (classification.projectType === 'HYBRID') {
+    if (classification.project_type === 'HYBRID') {
       return 'HYBRID_REVIEW';
     }
 
@@ -601,11 +601,11 @@ export class IntakeAgent {
     // Add QLD-specific requirements
     requirements.push('INFORMATION_PRIVACY_ACT_2009_QLD');
 
-    if (classification.projectType === 'QI') {
+    if (classification.project_type === 'QI') {
       requirements.push('MN_CLINICAL_GOVERNANCE');
     }
 
-    if (classification.projectType === 'RESEARCH' || classification.projectType === 'HYBRID') {
+    if (classification.project_type === 'RESEARCH' || classification.project_type === 'HYBRID') {
       requirements.push('QH_RESEARCH_GOVERNANCE');
     }
 
@@ -621,8 +621,8 @@ export class IntakeAgent {
     }
 
     // Check for grant target requirements
-    if (intakeData.grantTarget) {
-      switch (intakeData.grantTarget) {
+    if (intakeData.grant_target) {
+      switch (intakeData.grant_target) {
         case 'EMF_JUMPSTART':
         case 'EMF_LEADING_EDGE':
         case 'EMF_TRANSLATED':
@@ -650,7 +650,7 @@ export class IntakeAgent {
       actor: userId,
       details: {
         projectTitle: project.intake.projectTitle,
-        projectType: classification.projectType,
+        projectType: classification.project_type,
         confidence: classification.confidence,
         suggestedDesigns: classification.suggestedDesigns,
         reportingGuideline: project.frameworks.reportingGuideline,

@@ -193,7 +193,7 @@ export class ResearchAgent {
       action: 'RESEARCH_STARTED',
       details: {
         projectTitle: project.intake.projectTitle,
-        projectType: project.classification.projectType,
+        projectType: project.classification.project_type,
       },
     });
 

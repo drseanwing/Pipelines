@@ -274,7 +274,7 @@ export async function generateDesignJustification(
 
 Research Question: ${context.researchQuestion}
 
-Project Type: ${context.projectType}
+Project Type: ${context.project_type}
 
 Evidence Gaps: ${context.evidenceGaps?.length ? context.evidenceGaps.join('; ') : 'Not specified'}
 

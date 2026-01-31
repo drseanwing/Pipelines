@@ -226,12 +226,14 @@ interface DocumentMetadata {
 
 ## Next Steps
 
-Phase 8.2 will implement section building components:
-- `buildTitlePage()` method
-- `buildVersionHistory()` method
-- `buildSection()` method (markdown to Paragraph conversion)
-- `buildSynopsis()` method (table structure)
-- `buildReferences()` method (reference list generation)
+Section building components (see [sections-api.ts](./sections-api.ts) for full API):
+- `buildTitlePage(title, pi, date)` - Title page generation
+- `buildVersionHistory(version, changes)` - Version history table
+- `buildSection(title, content)` - Section with H1 heading + content
+- `buildSubsection(title, content)` - Subsection with H2 heading + content
+- `markdownToParagraphs(markdown)` - Low-level markdown conversion
+- `buildSynopsis(data)` - Key-value synopsis table
+- `buildReferences(citations)` - Numbered reference list
 
 ## Dependencies
 

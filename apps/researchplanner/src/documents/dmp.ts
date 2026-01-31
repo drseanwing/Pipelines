@@ -6,7 +6,7 @@
 
 import { Document, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, ShadingType } from 'docx';
 import { DocumentGenerator } from './engine.js';
-import { buildTitlePage, buildSection, buildVersionHistory, buildSimpleTable } from './sections.js';
+import { buildTitlePage, buildSection, markdownToParagraphs, buildVersionHistory, buildSimpleTable } from './sections.js';
 import { callLLM } from '../utils/llm.js';
 import { COLORS } from './styles.js';
 import type { Project } from '../types/project.js';
@@ -49,9 +49,9 @@ function buildDMPVersionHistory(project: Project): Table {
 /**
  * Helper: Build DMP section with heading
  */
-function buildDMPSection(title: string, content: string, level: HeadingLevel): Paragraph[] {
+function buildDMPSection(title: string, content: string, level: typeof HeadingLevel[keyof typeof HeadingLevel]): Paragraph[] {
   const markdown = `${'#'.repeat(level === HeadingLevel.HEADING_1 ? 1 : level === HeadingLevel.HEADING_2 ? 2 : 3)} ${title}\n\n${content}`;
-  return buildSection(markdown);
+  return markdownToParagraphs(markdown);
 }
 
 /**
@@ -87,14 +87,14 @@ export async function generateDataManagementPlan(
           // 1. Data Description
           ...buildDMPSection(
             '1. Data Description',
-            sections.dataDescription.content,
+            sections.dataDescription?.content || 'Data description pending',
             HeadingLevel.HEADING_1
           ),
 
           // 1.1 Data Types
           ...buildDMPSection(
             '1.1 Data Types and Formats',
-            sections.dataTypes.content,
+            sections.dataTypes?.content || 'Data types pending',
             HeadingLevel.HEADING_2
           ),
 
@@ -104,35 +104,35 @@ export async function generateDataManagementPlan(
           // 1.2 Data Volume
           ...buildDMPSection(
             '1.2 Expected Data Volume',
-            sections.dataVolume.content,
+            sections.dataVolume?.content || 'Data volume pending',
             HeadingLevel.HEADING_2
           ),
 
           // 2. Data Collection
           ...buildDMPSection(
             '2. Data Collection Methods',
-            sections.dataCollection.content,
+            sections.dataCollection?.content || 'Data collection methods pending',
             HeadingLevel.HEADING_1
           ),
 
           // 2.1 Collection Procedures
           ...buildDMPSection(
             '2.1 Collection Procedures',
-            sections.collectionProcedures.content,
+            sections.collectionProcedures?.content || 'Collection procedures pending',
             HeadingLevel.HEADING_2
           ),
 
           // 2.2 Quality Assurance
           ...buildDMPSection(
             '2.2 Quality Assurance',
-            sections.qualityAssurance.content,
+            sections.qualityAssurance?.content || 'Quality assurance pending',
             HeadingLevel.HEADING_2
           ),
 
           // 3. Storage and Security
           ...buildDMPSection(
             '3. Data Storage and Security',
-            sections.storageSecurity.content,
+            sections.storageSecurity?.content || 'Storage and security pending',
             HeadingLevel.HEADING_1
           ),
 
@@ -142,26 +142,26 @@ export async function generateDataManagementPlan(
           // 3.1 Access Controls
           ...buildDMPSection(
             '3.1 Access Controls',
-            sections.accessControls.content,
+            sections.accessControls?.content || 'Access controls pending',
             HeadingLevel.HEADING_2
           ),
 
           // 3.2 Backup Strategy
           ...buildDMPSection(
             '3.2 Backup and Recovery',
-            sections.backupRecovery.content,
+            sections.backupRecovery?.content || 'Backup and recovery pending',
             HeadingLevel.HEADING_2
           ),
 
           // 4. Data Sharing
           ...buildDMPSection(
             '4. Data Access and Sharing',
-            sections.dataSharing.content,
+            sections.dataSharing?.content || 'Data sharing pending',
             HeadingLevel.HEADING_1
           ),
 
           // 4.1 Data Transfer
-          ...(dataGov.data_transfer_plan
+          ...(dataGov.data_transfer_plan && sections.dataTransfer
             ? buildDMPSection(
                 '4.1 Data Transfer Arrangements',
                 sections.dataTransfer.content,
@@ -172,7 +172,7 @@ export async function generateDataManagementPlan(
           // 5. Retention and Disposal
           ...buildDMPSection(
             '5. Data Retention and Disposal',
-            sections.retentionDisposal.content,
+            sections.retentionDisposal?.content || 'Retention and disposal pending',
             HeadingLevel.HEADING_1
           ),
 
@@ -182,7 +182,7 @@ export async function generateDataManagementPlan(
           // 6. Legal and Ethical Compliance
           ...buildDMPSection(
             '6. Legal and Ethical Compliance',
-            sections.legalCompliance.content,
+            sections.legalCompliance?.content || 'Legal compliance pending',
             HeadingLevel.HEADING_1
           ),
 
@@ -199,7 +199,7 @@ export async function generateDataManagementPlan(
           // 7. Roles and Responsibilities
           ...buildDMPSection(
             '7. Roles and Responsibilities',
-            sections.rolesResponsibilities.content,
+            sections.rolesResponsibilities?.content || 'Roles and responsibilities pending',
             HeadingLevel.HEADING_1
           ),
 
@@ -209,7 +209,7 @@ export async function generateDataManagementPlan(
           // 8. Review and Updates
           ...buildDMPSection(
             '8. DMP Review and Updates',
-            sections.reviewUpdates.content,
+            sections.reviewUpdates?.content || 'Review and updates pending',
             HeadingLevel.HEADING_1
           ),
         ],

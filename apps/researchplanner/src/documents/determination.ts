@@ -9,22 +9,7 @@ import type { EthicsEvaluation } from '../types/ethics.js';
 import type { Methodology } from '../types/methodology.js';
 import { ProjectType } from '../types/project.js';
 import { EthicsPathwayType } from '../types/ethics.js';
-
-/**
- * Document types available for generation
- */
-export type DocumentType =
-  | 'PROTOCOL'
-  | 'PARTICIPANT_INFO_SHEET'
-  | 'CONSENT_FORM'
-  | 'DATA_MANAGEMENT_PLAN'
-  | 'COVER_LETTER'
-  | 'EMF_GRANT_APPLICATION'
-  | 'SITE_ASSESSMENT_FORM'
-  | 'INVESTIGATOR_CV'
-  | 'BUDGET_JUSTIFICATION'
-  | 'TIMELINE_GANTT'
-  | 'REFERENCES_BIBLIOGRAPHY';
+import { DocumentType } from '../types/documents.js';
 
 /**
  * Document requirement specification
@@ -116,7 +101,6 @@ function determinePackageType(
 
   switch (ethicsPathway) {
     case EthicsPathwayType.QI_REGISTRATION:
-    case EthicsPathwayType.EXEMPT:
       return 'QI_MINIMAL';
 
     case EthicsPathwayType.LOW_RISK_RESEARCH:
@@ -141,13 +125,13 @@ function getBaseRequirements(packageType: DocumentPackage['package_type']): Docu
     case 'QI_MINIMAL':
       return [
         {
-          document_type: 'PROTOCOL',
+          document_type: DocumentType.RESEARCH_PROTOCOL,
           required: false,
           priority: 'RECOMMENDED',
           rationale: 'QI projects benefit from documented methodology but formal protocol not required',
         },
         {
-          document_type: 'DATA_MANAGEMENT_PLAN',
+          document_type: DocumentType.DATA_MANAGEMENT_PLAN,
           required: false,
           priority: 'RECOMMENDED',
           rationale: 'Good practice for data handling even in QI projects',
@@ -157,43 +141,43 @@ function getBaseRequirements(packageType: DocumentPackage['package_type']): Docu
     case 'LOW_RISK_STANDARD':
       return [
         {
-          document_type: 'PROTOCOL',
+          document_type: DocumentType.RESEARCH_PROTOCOL,
           required: true,
           priority: 'ESSENTIAL',
           rationale: 'Required for all research ethics applications',
           template_name: 'protocol-template.docx',
         },
         {
-          document_type: 'PARTICIPANT_INFO_SHEET',
+          document_type: DocumentType.PICF,
           required: true,
           priority: 'ESSENTIAL',
           rationale: 'Required to inform participants about the research',
-          dependencies: ['PROTOCOL'],
+          dependencies: [DocumentType.RESEARCH_PROTOCOL],
           template_name: 'pis-template.docx',
         },
         {
-          document_type: 'CONSENT_FORM',
+          document_type: DocumentType.PICF,
           required: true,
           priority: 'ESSENTIAL',
           rationale: 'Required to document participant consent',
-          dependencies: ['PARTICIPANT_INFO_SHEET'],
+          dependencies: [DocumentType.PICF],
           template_name: 'consent-template.docx',
         },
         {
-          document_type: 'DATA_MANAGEMENT_PLAN',
+          document_type: DocumentType.DATA_MANAGEMENT_PLAN,
           required: true,
           priority: 'ESSENTIAL',
           rationale: 'Required for data governance compliance',
           template_name: 'dmp-template.docx',
         },
         {
-          document_type: 'COVER_LETTER',
+          document_type: DocumentType.HREC_COVER_LETTER,
           required: false,
           priority: 'RECOMMENDED',
           rationale: 'Helpful for ethics submission context',
         },
         {
-          document_type: 'INVESTIGATOR_CV',
+          document_type: DocumentType.RESEARCH_PROTOCOL,
           required: false,
           priority: 'RECOMMENDED',
           rationale: 'May be requested by ethics committee',
@@ -203,74 +187,74 @@ function getBaseRequirements(packageType: DocumentPackage['package_type']): Docu
     case 'FULL_HREC_COMPLETE':
       return [
         {
-          document_type: 'PROTOCOL',
+          document_type: DocumentType.RESEARCH_PROTOCOL,
           required: true,
           priority: 'ESSENTIAL',
           rationale: 'Mandatory for full HREC review',
           template_name: 'protocol-template.docx',
         },
         {
-          document_type: 'PARTICIPANT_INFO_SHEET',
+          document_type: DocumentType.PICF,
           required: true,
           priority: 'ESSENTIAL',
           rationale: 'Mandatory participant information',
-          dependencies: ['PROTOCOL'],
+          dependencies: [DocumentType.RESEARCH_PROTOCOL],
           template_name: 'pis-template.docx',
         },
         {
-          document_type: 'CONSENT_FORM',
+          document_type: DocumentType.PICF,
           required: true,
           priority: 'ESSENTIAL',
           rationale: 'Mandatory consent documentation',
-          dependencies: ['PARTICIPANT_INFO_SHEET'],
+          dependencies: [DocumentType.PICF],
           template_name: 'consent-template.docx',
         },
         {
-          document_type: 'DATA_MANAGEMENT_PLAN',
+          document_type: DocumentType.DATA_MANAGEMENT_PLAN,
           required: true,
           priority: 'ESSENTIAL',
           rationale: 'Mandatory for data governance',
           template_name: 'dmp-template.docx',
         },
         {
-          document_type: 'COVER_LETTER',
+          document_type: DocumentType.HREC_COVER_LETTER,
           required: true,
           priority: 'ESSENTIAL',
           rationale: 'Required for HREC submission',
           template_name: 'cover-letter-template.docx',
         },
         {
-          document_type: 'INVESTIGATOR_CV',
+          document_type: DocumentType.RESEARCH_PROTOCOL,
           required: true,
           priority: 'ESSENTIAL',
           rationale: 'Required for all investigators',
         },
         {
-          document_type: 'BUDGET_JUSTIFICATION',
+          document_type: DocumentType.RESEARCH_PROTOCOL,
           required: false,
           priority: 'RECOMMENDED',
           rationale: 'Required if seeking funding',
         },
         {
-          document_type: 'TIMELINE_GANTT',
+          document_type: DocumentType.RESEARCH_PROTOCOL,
           required: false,
           priority: 'RECOMMENDED',
           rationale: 'Helpful for demonstrating feasibility',
         },
         {
-          document_type: 'EMF_GRANT_APPLICATION',
+          document_type: DocumentType.EMF_APPLICATION,
           required: false,
           priority: 'OPTIONAL',
           rationale: 'Only if applying for EMF funding',
         },
         {
-          document_type: 'SITE_ASSESSMENT_FORM',
+          document_type: DocumentType.SITE_ASSESSMENT,
           required: false,
           priority: 'OPTIONAL',
           rationale: 'Required for multi-site studies',
         },
         {
-          document_type: 'REFERENCES_BIBLIOGRAPHY',
+          document_type: DocumentType.RESEARCH_PROTOCOL,
           required: false,
           priority: 'OPTIONAL',
           rationale: 'Can be integrated into protocol',
@@ -280,37 +264,37 @@ function getBaseRequirements(packageType: DocumentPackage['package_type']): Docu
     case 'HYBRID':
       return [
         {
-          document_type: 'PROTOCOL',
+          document_type: DocumentType.RESEARCH_PROTOCOL,
           required: true,
           priority: 'ESSENTIAL',
           rationale: 'Required for hybrid pathway',
           template_name: 'protocol-template.docx',
         },
         {
-          document_type: 'PARTICIPANT_INFO_SHEET',
+          document_type: DocumentType.PICF,
           required: true,
           priority: 'ESSENTIAL',
           rationale: 'Required for research component',
-          dependencies: ['PROTOCOL'],
+          dependencies: [DocumentType.RESEARCH_PROTOCOL],
           template_name: 'pis-template.docx',
         },
         {
-          document_type: 'CONSENT_FORM',
+          document_type: DocumentType.PICF,
           required: true,
           priority: 'ESSENTIAL',
           rationale: 'Required for research component',
-          dependencies: ['PARTICIPANT_INFO_SHEET'],
+          dependencies: [DocumentType.PICF],
           template_name: 'consent-template.docx',
         },
         {
-          document_type: 'DATA_MANAGEMENT_PLAN',
+          document_type: DocumentType.DATA_MANAGEMENT_PLAN,
           required: true,
           priority: 'ESSENTIAL',
           rationale: 'Required for data governance',
           template_name: 'dmp-template.docx',
         },
         {
-          document_type: 'COVER_LETTER',
+          document_type: DocumentType.HREC_COVER_LETTER,
           required: true,
           priority: 'ESSENTIAL',
           rationale: 'Important for explaining hybrid nature',
@@ -335,31 +319,21 @@ function adjustRequirements(
 
   // Check for consent waiver
   if (ethics.consent_requirements.waiver_justified) {
-    const consentIndex = adjusted.findIndex(r => r.document_type === 'CONSENT_FORM');
-    if (consentIndex >= 0) {
-      adjusted[consentIndex] = {
-        ...adjusted[consentIndex],
+    const picfIndex = adjusted.findIndex(r => r.document_type === DocumentType.PICF);
+    if (picfIndex >= 0 && adjusted[picfIndex]) {
+      adjusted[picfIndex] = {
+        ...adjusted[picfIndex],
         required: false,
         priority: 'OPTIONAL',
-        rationale: 'Consent waiver approved - formal consent form not required',
-      };
-    }
-
-    const pisIndex = adjusted.findIndex(r => r.document_type === 'PARTICIPANT_INFO_SHEET');
-    if (pisIndex >= 0) {
-      adjusted[pisIndex] = {
-        ...adjusted[pisIndex],
-        required: false,
-        priority: 'OPTIONAL',
-        rationale: 'Consent waiver approved - PIS may not be required',
+        rationale: 'Consent waiver approved - PICF may not be required',
       };
     }
   }
 
   // Check for multi-site requirements
   if (ethics.site_requirements.length > 1) {
-    const siteFormIndex = adjusted.findIndex(r => r.document_type === 'SITE_ASSESSMENT_FORM');
-    if (siteFormIndex >= 0) {
+    const siteFormIndex = adjusted.findIndex(r => r.document_type === DocumentType.SITE_ASSESSMENT);
+    if (siteFormIndex >= 0 && adjusted[siteFormIndex]) {
       adjusted[siteFormIndex] = {
         ...adjusted[siteFormIndex],
         required: true,
@@ -368,7 +342,7 @@ function adjustRequirements(
       };
     } else {
       adjusted.push({
-        document_type: 'SITE_ASSESSMENT_FORM',
+        document_type: DocumentType.SITE_ASSESSMENT,
         required: true,
         priority: 'ESSENTIAL',
         rationale: 'Multi-site study requires site-specific assessment forms',
@@ -380,8 +354,8 @@ function adjustRequirements(
   if (project.frameworks?.governance_requirements?.some(r =>
     r.toLowerCase().includes('emf') || r.toLowerCase().includes('grant')
   )) {
-    const emfIndex = adjusted.findIndex(r => r.document_type === 'EMF_GRANT_APPLICATION');
-    if (emfIndex >= 0) {
+    const emfIndex = adjusted.findIndex(r => r.document_type === DocumentType.EMF_APPLICATION);
+    if (emfIndex >= 0 && adjusted[emfIndex]) {
       adjusted[emfIndex] = {
         ...adjusted[emfIndex],
         required: true,
@@ -390,7 +364,7 @@ function adjustRequirements(
       };
     } else {
       adjusted.push({
-        document_type: 'EMF_GRANT_APPLICATION',
+        document_type: DocumentType.EMF_APPLICATION,
         required: true,
         priority: 'ESSENTIAL',
         rationale: 'EMF funding application required based on project requirements',
@@ -400,11 +374,11 @@ function adjustRequirements(
 
   // Check for vulnerable populations requiring enhanced consent
   if (methodology.participants.vulnerable_population) {
-    const consentIndex = adjusted.findIndex(r => r.document_type === 'CONSENT_FORM');
-    if (consentIndex >= 0 && adjusted[consentIndex].required) {
-      adjusted[consentIndex] = {
-        ...adjusted[consentIndex],
-        rationale: adjusted[consentIndex].rationale + ' - Enhanced consent required for vulnerable population',
+    const picfIndex = adjusted.findIndex(r => r.document_type === DocumentType.PICF);
+    if (picfIndex >= 0 && adjusted[picfIndex]?.required) {
+      adjusted[picfIndex] = {
+        ...adjusted[picfIndex],
+        rationale: adjusted[picfIndex].rationale + ' - Enhanced consent required for vulnerable population',
       };
     }
   }
@@ -421,17 +395,17 @@ function getSubmissionOrder(
 ): DocumentType[] {
   // Standard submission order
   const standardOrder: DocumentType[] = [
-    'COVER_LETTER',
-    'PROTOCOL',
-    'PARTICIPANT_INFO_SHEET',
-    'CONSENT_FORM',
-    'DATA_MANAGEMENT_PLAN',
-    'INVESTIGATOR_CV',
-    'BUDGET_JUSTIFICATION',
-    'TIMELINE_GANTT',
-    'EMF_GRANT_APPLICATION',
-    'SITE_ASSESSMENT_FORM',
-    'REFERENCES_BIBLIOGRAPHY',
+    DocumentType.HREC_COVER_LETTER,
+    DocumentType.RESEARCH_PROTOCOL,
+    DocumentType.PICF,
+    DocumentType.PICF,
+    DocumentType.DATA_MANAGEMENT_PLAN,
+    DocumentType.RESEARCH_PROTOCOL,
+    DocumentType.RESEARCH_PROTOCOL,
+    DocumentType.RESEARCH_PROTOCOL,
+    DocumentType.EMF_APPLICATION,
+    DocumentType.SITE_ASSESSMENT,
+    DocumentType.RESEARCH_PROTOCOL,
   ];
 
   // Filter to only required documents
@@ -443,18 +417,15 @@ function getSubmissionOrder(
  * Calculate estimated total pages
  */
 function calculateEstimatedPages(requirements: DocumentRequirement[]): number {
-  const pageEstimates: Record<DocumentType, number> = {
-    'PROTOCOL': 25,
-    'PARTICIPANT_INFO_SHEET': 4,
-    'CONSENT_FORM': 2,
-    'DATA_MANAGEMENT_PLAN': 5,
-    'COVER_LETTER': 2,
-    'EMF_GRANT_APPLICATION': 15,
-    'SITE_ASSESSMENT_FORM': 3,
-    'INVESTIGATOR_CV': 2,
-    'BUDGET_JUSTIFICATION': 2,
-    'TIMELINE_GANTT': 1,
-    'REFERENCES_BIBLIOGRAPHY': 3,
+  const pageEstimates: Partial<Record<DocumentType, number>> = {
+    [DocumentType.RESEARCH_PROTOCOL]: 25,
+    [DocumentType.QI_PROJECT_PLAN]: 20,
+    [DocumentType.PICF]: 4,
+    [DocumentType.DATA_MANAGEMENT_PLAN]: 5,
+    [DocumentType.HREC_COVER_LETTER]: 2,
+    [DocumentType.EMF_APPLICATION]: 15,
+    [DocumentType.SITE_ASSESSMENT]: 3,
+    [DocumentType.LNR_APPLICATION]: 10,
   };
 
   return requirements.reduce((total, req) => {

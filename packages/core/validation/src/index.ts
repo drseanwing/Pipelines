@@ -79,7 +79,7 @@ export function validateOrThrow<T extends ZodSchema>(
  * For complex schemas, consider using zod-to-json-schema package.
  */
 export function zodToJsonSchema(schema: ZodType): Record<string, unknown> {
-  const def = schema._def;
+  const def = schema._def as any;
   const typeName = def.typeName;
 
   switch (typeName) {
@@ -116,7 +116,7 @@ export function zodToJsonSchema(schema: ZodType): Record<string, unknown> {
     case 'ZodArray':
       return {
         type: 'array',
-        items: zodToJsonSchema(def.type),
+        items: zodToJsonSchema((def as any).type),
       };
 
     case 'ZodObject': {
@@ -141,22 +141,22 @@ export function zodToJsonSchema(schema: ZodType): Record<string, unknown> {
     case 'ZodEnum':
       return {
         type: 'string',
-        enum: def.values,
+        enum: (def as any).values,
       };
 
     case 'ZodOptional':
-      return zodToJsonSchema(def.innerType);
+      return zodToJsonSchema((def as any).innerType);
 
     case 'ZodDefault':
       return {
-        ...zodToJsonSchema(def.innerType),
-        default: def.defaultValue(),
+        ...zodToJsonSchema((def as any).innerType),
+        default: (def as any).defaultValue(),
       };
 
     case 'ZodNullable':
       return {
         oneOf: [
-          zodToJsonSchema(def.innerType),
+          zodToJsonSchema((def as any).innerType),
           { type: 'null' },
         ],
       };

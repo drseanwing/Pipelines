@@ -245,7 +245,7 @@ export class ProjectRepository extends BaseRepository<Project, IntakeData, Parti
       const now = new Date().toISOString();
 
       const initialClassification: Classification = {
-        projectType: intake.projectType,
+        projectType: intake.project_type,
         confidence: 0,
         reasoning: 'Pending classification',
         suggestedDesigns: [],
@@ -272,7 +272,7 @@ export class ProjectRepository extends BaseRepository<Project, IntakeData, Parti
           actor: ownerId,
           details: {
             projectTitle: intake.projectTitle,
-            projectType: intake.projectType,
+            projectType: intake.project_type,
           },
         },
       ];
@@ -672,17 +672,17 @@ export class ProjectRepository extends BaseRepository<Project, IntakeData, Parti
 
       // Handle projectType filter (requires JSONB query)
       let projectTypeClause = '';
-      if (options.projectType) {
-        if (Array.isArray(options.projectType)) {
-          const placeholders = options.projectType
+      if (options.project_type) {
+        if (Array.isArray(options.project_type)) {
+          const placeholders = options.project_type
             .map((_, i) => `$${paramIndex + i}`)
             .join(', ');
           projectTypeClause = ` AND intake->>'projectType' IN (${placeholders})`;
-          params.push(...options.projectType);
-          paramIndex += options.projectType.length;
+          params.push(...options.project_type);
+          paramIndex += options.project_type.length;
         } else {
           projectTypeClause = ` AND intake->>'projectType' = $${paramIndex}`;
-          params.push(options.projectType);
+          params.push(options.project_type);
           paramIndex++;
         }
       }
@@ -794,7 +794,7 @@ export class ProjectRepository extends BaseRepository<Project, IntakeData, Parti
         action: 'CLASSIFICATION_UPDATED',
         actor,
         details: {
-          projectType: classification.projectType,
+          projectType: classification.project_type,
           confidence: classification.confidence,
           reportingGuideline: frameworks.reportingGuideline,
         },

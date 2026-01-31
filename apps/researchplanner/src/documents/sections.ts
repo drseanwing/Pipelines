@@ -135,10 +135,20 @@ export function buildVersionHistory(
 
 /**
  * Convert markdown text to Paragraph elements
+ *
+ * This is the low-level function for converting markdown to docx Paragraphs.
+ * Prefer using buildSection() or buildSubsection() for structured content.
+ *
+ * @param {string} markdown - Markdown-formatted text
+ * @param {HeadingLevel} [headingLevel] - Optional heading level for first paragraph
+ * @returns {Paragraph[]} Array of Paragraph elements
+ *
+ * @see {@link buildSection} for creating sections with title + content
+ * @see {@link buildSubsection} for creating subsections
  */
-export function buildSection(
+export function markdownToParagraphs(
   markdown: string,
-  headingLevel?: HeadingLevel
+  headingLevel?: typeof HeadingLevel[keyof typeof HeadingLevel]
 ): Paragraph[] {
   const lines = markdown.split('\n');
   const paragraphs: Paragraph[] = [];
@@ -154,7 +164,7 @@ export function buildSection(
 
     // Check for markdown headers
     const headerMatch = trimmedLine.match(/^(#{1,6})\s+(.+)$/);
-    if (headerMatch) {
+    if (headerMatch?.[1] && headerMatch?.[2]) {
       const level = headerMatch[1].length;
       const text = headerMatch[2];
       const heading = getHeadingLevel(level);
@@ -404,7 +414,7 @@ export function buildBulletList(items: string[]): Paragraph[] {
 /**
  * Helper function to convert markdown header level to docx HeadingLevel
  */
-function getHeadingLevel(level: number): HeadingLevel {
+function getHeadingLevel(level: number): typeof HeadingLevel[keyof typeof HeadingLevel] {
   switch (level) {
     case 1:
       return HeadingLevel.HEADING_1;
@@ -421,4 +431,42 @@ function getHeadingLevel(level: number): HeadingLevel {
     default:
       return HeadingLevel.HEADING_1;
   }
+}
+
+/**
+ * Build a section with a heading and content
+ *
+ * Creates a section with:
+ * - Heading 1 (H1) for the title
+ * - Content paragraphs (supports markdown formatting)
+ *
+ * @param {string} title - Section title (will be rendered as H1)
+ * @param {string} content - Section content (supports markdown: **bold**, *italic*, lists)
+ * @returns {Paragraph[]} Array of Paragraph elements ready for docx Document
+ *
+ * @example
+ * const section = buildSection("Introduction", "This study aims to...");
+ */
+export function buildSection(title: string, content: string): Paragraph[] {
+  const markdown = `# ${title}\n\n${content}`;
+  return markdownToParagraphs(markdown);
+}
+
+/**
+ * Build a subsection with a heading and content
+ *
+ * Creates a subsection with:
+ * - Heading 2 (H2) for the title
+ * - Content paragraphs (supports markdown formatting)
+ *
+ * @param {string} title - Subsection title (will be rendered as H2)
+ * @param {string} content - Subsection content (supports markdown)
+ * @returns {Paragraph[]} Array of Paragraph elements
+ *
+ * @example
+ * const subsection = buildSubsection("Sample Size", "We calculated a sample size of 120 participants...");
+ */
+export function buildSubsection(title: string, content: string): Paragraph[] {
+  const markdown = `## ${title}\n\n${content}`;
+  return markdownToParagraphs(markdown, HeadingLevel.HEADING_2);
 }

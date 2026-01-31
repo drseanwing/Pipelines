@@ -14,7 +14,7 @@ export interface DatabaseConfig {
   port: number;
   database: string;
   user: string;
-  password: string;
+  password?: string;
   schema?: string;
   /** Max pool size (default: 20) */
   maxConnections?: number;

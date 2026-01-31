@@ -58,9 +58,8 @@ export async function generatePICF(
           }),
 
           new Paragraph({
-            text: 'Please read this information carefully before deciding whether to participate in this research.',
+            children: [new TextRun({ text: 'Please read this information carefully before deciding whether to participate in this research.', italics: true })],
             spacing: { after: 400 },
-            italics: true,
           }),
 
           // Information sheet sections
@@ -84,9 +83,8 @@ export async function generatePICF(
           }),
 
           new Paragraph({
-            text: 'If you would like to participate in this research, please indicate your consent by signing below.',
+            children: [new TextRun({ text: 'If you would like to participate in this research, please indicate your consent by signing below.', italics: true })],
             spacing: { after: 400 },
-            italics: true,
           }),
 
           // Consent statements
@@ -570,9 +568,8 @@ function generateConsentStatements(ethics: EthicsEvaluation): string[] {
 export function buildConsentForm(consentItems: string[]): Paragraph[] {
   const paragraphs: Paragraph[] = [
     new Paragraph({
-      text: 'Please tick each box if you agree:',
+      children: [new TextRun({ text: 'Please tick each box if you agree:', bold: true })],
       spacing: { after: 200 },
-      bold: true,
     }),
   ];
 
@@ -603,10 +600,8 @@ export function buildSignatureBlocks(requiresWitness: boolean): Paragraph[] {
 
     // Participant signature
     new Paragraph({
-      text: 'PARTICIPANT',
+      children: [new TextRun({ text: 'PARTICIPANT', bold: true, underline: { type: UnderlineType.SINGLE } })],
       spacing: { after: 200 },
-      bold: true,
-      underline: { type: UnderlineType.SINGLE },
     }),
 
     new Paragraph({
@@ -643,16 +638,13 @@ export function buildSignatureBlocks(requiresWitness: boolean): Paragraph[] {
   if (requiresWitness) {
     blocks.push(
       new Paragraph({
-        text: 'WITNESS (if required)',
+        children: [new TextRun({ text: 'WITNESS (if required)', bold: true, underline: { type: UnderlineType.SINGLE } })],
         spacing: { before: 400, after: 200 },
-        bold: true,
-        underline: { type: UnderlineType.SINGLE },
       }),
 
       new Paragraph({
-        text: 'I certify that I was present when the participant signed this consent form.',
+        children: [new TextRun({ text: 'I certify that I was present when the participant signed this consent form.', italics: true })],
         spacing: { after: 200 },
-        italics: true,
       }),
 
       new Paragraph({
@@ -684,16 +676,13 @@ export function buildSignatureBlocks(requiresWitness: boolean): Paragraph[] {
   // Add investigator signature block
   blocks.push(
     new Paragraph({
-      text: 'INVESTIGATOR STATEMENT',
+      children: [new TextRun({ text: 'INVESTIGATOR STATEMENT', bold: true, underline: { type: UnderlineType.SINGLE } })],
       spacing: { before: 400, after: 200 },
-      bold: true,
-      underline: { type: UnderlineType.SINGLE },
     }),
 
     new Paragraph({
-      text: 'I have explained the nature and purpose of this study to the participant. I have answered all questions to the best of my ability.',
+      children: [new TextRun({ text: 'I have explained the nature and purpose of this study to the participant. I have answered all questions to the best of my ability.', italics: true })],
       spacing: { after: 200 },
-      italics: true,
     }),
 
     new Paragraph({

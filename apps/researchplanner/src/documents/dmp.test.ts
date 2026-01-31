@@ -56,7 +56,7 @@ describe('generateDataManagementPlan', () => {
       co_investigators: [
         {
           name: 'Dr. Co-Investigator',
-          role: 'Co-I',
+          role: 'CO_I',
           title: 'Dr',
           institution: 'Test Hospital',
           department: 'Research',

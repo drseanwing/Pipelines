@@ -107,13 +107,16 @@ export interface DataGovernanceSpec {
  * Spec reference: Section 3.5.2
  */
 export interface SiteRequirement {
+  site_id?: string;
   site_name: string;
   site_type: 'PRIMARY' | 'SECONDARY';
   governance_requirements: string[];
   site_specific_approval_required: boolean;
+  requires_local_approval?: boolean;
   estimated_approval_timeline: string;
   site_assessment_form_required: boolean;
   investigator_agreement_required: boolean;
+  status?: 'NOT_STARTED' | 'IN_PROGRESS' | 'APPROVED' | 'PENDING';
 }
 
 /**

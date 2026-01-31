@@ -190,7 +190,7 @@ export function generateDesignRationale(
   let rationale = '# Study Design Rationale\n\n';
 
   rationale += '## Project Context\n\n';
-  rationale += `**Project Type:** ${context.projectType}\n\n`;
+  rationale += `**Project Type:** ${context.project_type}\n\n`;
 
   rationale += '**Study Aims:**\n';
   context.aims.forEach((aim, idx) => {

@@ -122,7 +122,7 @@ export function getNextStage(currentStage: WorkflowStage): WorkflowStage | null 
   if (currentIndex === -1 || currentIndex === STAGE_ORDER.length - 1) {
     return null;
   }
-  return STAGE_ORDER[currentIndex + 1];
+  return STAGE_ORDER[currentIndex + 1] ?? null;
 }
 
 /**
@@ -136,7 +136,7 @@ export function getPreviousStage(currentStage: WorkflowStage): WorkflowStage | n
   if (currentIndex <= 0) {
     return null;
   }
-  return STAGE_ORDER[currentIndex - 1];
+  return STAGE_ORDER[currentIndex - 1] ?? null;
 }
 
 /**

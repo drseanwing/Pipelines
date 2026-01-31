@@ -73,7 +73,7 @@ Dear ${project.intake.principal_investigator.name},
 The methodology design for "${project.intake.project_title}" has been completed.
 
 Project ID: ${project.id}
-Study Design: ${project.methodology?.study_design?.design_type || 'N/A'}
+Study Design: ${project.methodology?.study_design?.type || 'N/A'}
 
 Please review the study design, participant criteria, and analysis plan.
 
@@ -92,8 +92,8 @@ Dear ${project.intake.principal_investigator.name},
 The ethics evaluation for "${project.intake.project_title}" has been completed.
 
 Project ID: ${project.id}
-Ethics Pathway: ${project.ethics?.pathway?.pathway_type || 'N/A'}
-Approval Body: ${project.ethics?.pathway?.approval_body || 'N/A'}
+Ethics Pathway: ${project.ethics?.ethics_pathway?.pathway || 'N/A'}
+Approval Body: ${project.ethics?.ethics_pathway?.approval_body || 'N/A'}
 
 Please review the ethics pathway determination and governance requirements.
 
@@ -112,7 +112,7 @@ Dear ${project.intake.principal_investigator.name},
 All documents for "${project.intake.project_title}" have been generated and are ready for final review.
 
 Project ID: ${project.id}
-Documents Generated: ${project.documents?.generated_documents?.length || 0}
+Documents Generated: ${project.documents?.generated?.length || 0}
 
 Please review all documents before submission.
 

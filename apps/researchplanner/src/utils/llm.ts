@@ -194,7 +194,7 @@ export function parseJSONResponse<T = any>(response: string): T {
 
   // Remove markdown code block if present
   const codeBlockMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  if (codeBlockMatch) {
+  if (codeBlockMatch?.[1]) {
     jsonText = codeBlockMatch[1].trim();
   }
 

@@ -129,11 +129,36 @@ export interface ProcedureSpec {
 
 /**
  * Data collection specification
+ *
+ * Defines how data will be collected, what instruments will be used,
+ * and how data quality will be ensured.
+ *
+ * @interface DataCollectionSpec
+ * @property {string[]} data_types - Types of data being collected
+ * @property {boolean} includes_identifiable_data - Whether any identifiable data is collected
+ * @property {string[]} methods - Data collection methods (e.g., ['survey', 'interview', 'chart_review'])
+ * @property {Array} instruments - Measurement instruments and tools
+ * @property {string[]} collection_timepoints - When data will be collected
+ * @property {string} missing_data_handling - Strategy for handling missing data
+ *
  * Spec reference: Section 3.4.2
+ *
+ * @example
+ * const dataCollection: DataCollectionSpec = {
+ *   data_types: ['CLINICAL', 'SURVEY'],
+ *   includes_identifiable_data: true,
+ *   methods: ['survey', 'chart_review'],
+ *   instruments: [
+ *     { name: "PHQ-9", type: "depression_scale", validated: true, source: "Kroenke et al. 2001" }
+ *   ],
+ *   collection_timepoints: ["Baseline", "3 months", "6 months"],
+ *   missing_data_handling: "Multiple imputation for <20% missing, complete case for >20%"
+ * };
  */
 export interface DataCollectionSpec {
   data_types: ('CLINICAL' | 'ADMINISTRATIVE' | 'SURVEY' | 'QUALITATIVE' | 'BIOLOGICAL')[];
   includes_identifiable_data: boolean;
+  methods: string[]; // Data collection methods (e.g., ['survey', 'interview', 'chart_review'])
   instruments: {
     name: string;
     type: string;

@@ -11,8 +11,9 @@ import {
   Document,
   Packer,
   PageOrientation,
-  IStylesOptions,
-  ISectionOptions,
+  type IStylesOptions,
+  type ISectionOptions,
+  type ISectionPropertiesOptions,
   convertInchesToTwip,
 } from 'docx';
 import { promises as fs } from 'fs';
@@ -179,7 +180,7 @@ export class DocumentGenerator {
    *
    * @returns Section options for A4 page with margins
    */
-  getPageProperties(): ISectionOptions {
+  getPageProperties(): ISectionPropertiesOptions {
     const marginTwips = convertInchesToTwip(1.0); // 2.54cm = 1 inch = 1440 twips
 
     return {

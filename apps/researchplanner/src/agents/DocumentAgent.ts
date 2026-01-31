@@ -379,8 +379,8 @@ export class DocumentAgent {
     const required: DocumentType[] = [];
 
     // Get ethics pathway
-    const ethicsPathway = project.ethics?.ethicsPathway?.pathway;
-    const grantTarget = project.intake.grantTarget;
+    const ethicsPathway = project.ethics?.ethics_pathway?.pathway;
+    const grantTarget = project.intake.grant_target;
 
     // Use utility function for base requirements
     if (ethicsPathway) {
@@ -388,7 +388,7 @@ export class DocumentAgent {
       required.push(...baseRequired);
     } else {
       // Fallback based on project type
-      if (project.classification.projectType === 'QI') {
+      if (project.classification.project_type === 'QI') {
         required.push(DocumentType.QI_PROJECT_PLAN);
       } else {
         required.push(DocumentType.RESEARCH_PROTOCOL);
@@ -396,8 +396,8 @@ export class DocumentAgent {
     }
 
     // Add consent form if required
-    if (project.ethics?.consentRequirements?.type !== 'NOT_APPLICABLE') {
-      if (project.ethics?.consentRequirements?.type === 'WRITTEN_CONSENT') {
+    if (project.ethics?.consent_requirements?.type !== 'NOT_APPLICABLE') {
+      if (project.ethics?.consent_requirements?.type === 'WRITTEN_CONSENT') {
         if (!required.includes(DocumentType.PICF)) {
           required.push(DocumentType.PICF);
         }
@@ -405,7 +405,7 @@ export class DocumentAgent {
     }
 
     // Add data management plan if not already included
-    if (project.ethics?.dataGovernance && !required.includes(DocumentType.DATA_MANAGEMENT_PLAN)) {
+    if (project.ethics?.data_governance && !required.includes(DocumentType.DATA_MANAGEMENT_PLAN)) {
       required.push(DocumentType.DATA_MANAGEMENT_PLAN);
     }
 
@@ -713,12 +713,12 @@ export class DocumentAgent {
     }
 
     // Methodology is required for most documents
-    if (!project.methodology && project.classification.projectType !== 'QI') {
+    if (!project.methodology && project.classification.project_type !== 'QI') {
       throw new Error('Methodology stage must be completed before document generation');
     }
 
     // Ethics is required for research projects
-    if (!project.ethics && project.classification.projectType !== 'QI') {
+    if (!project.ethics && project.classification.project_type !== 'QI') {
       throw new Error('Ethics stage must be completed before document generation');
     }
   }
@@ -832,14 +832,14 @@ export class DocumentAgent {
         name: 'data_management',
         title: 'Data Management',
         sectionType: SectionType.DATA_MANAGEMENT,
-        sourceFields: ['ethics.dataGovernance', 'methodology.dataCollection'],
+        sourceFields: ['ethics.data_governance', 'methodology.dataCollection'],
         isRequired: true,
       },
       {
         name: 'ethical_considerations',
         title: 'Ethical Considerations',
         sectionType: SectionType.ETHICAL_CONSIDERATIONS,
-        sourceFields: ['ethics.ethicsPathway', 'ethics.riskAssessment', 'ethics.consentRequirements'],
+        sourceFields: ['ethics.ethics_pathway', 'ethics.risk_assessment', 'ethics.consent_requirements'],
         isRequired: true,
       },
       {
@@ -1004,14 +1004,14 @@ export class DocumentAgent {
         name: 'ethical_considerations',
         title: 'Key Ethical Considerations',
         sectionType: SectionType.ETHICAL_CONSIDERATIONS,
-        sourceFields: ['ethics.riskAssessment', 'ethics.consentRequirements'],
+        sourceFields: ['ethics.risk_assessment', 'ethics.consent_requirements'],
         isRequired: true,
       },
       {
         name: 'request',
         title: 'Request for Review',
         sectionType: SectionType.APPENDIX,
-        sourceFields: ['ethics.ethicsPathway'],
+        sourceFields: ['ethics.ethics_pathway'],
         isRequired: true,
       },
     ];
@@ -1047,21 +1047,21 @@ export class DocumentAgent {
         name: 'risks_benefits',
         title: 'Risks and Benefits',
         sectionType: SectionType.ETHICAL_CONSIDERATIONS,
-        sourceFields: ['ethics.riskAssessment'],
+        sourceFields: ['ethics.risk_assessment'],
         isRequired: true,
       },
       {
         name: 'privacy',
         title: 'Privacy and Confidentiality',
         sectionType: SectionType.DATA_MANAGEMENT,
-        sourceFields: ['ethics.dataGovernance'],
+        sourceFields: ['ethics.data_governance'],
         isRequired: true,
       },
       {
         name: 'voluntary',
         title: 'Voluntary Participation',
         sectionType: SectionType.ETHICAL_CONSIDERATIONS,
-        sourceFields: ['ethics.consentRequirements'],
+        sourceFields: ['ethics.consent_requirements'],
         isRequired: true,
       },
       {
@@ -1083,7 +1083,7 @@ export class DocumentAgent {
         name: 'data_types',
         title: 'Data Types and Sources',
         sectionType: SectionType.DATA_MANAGEMENT,
-        sourceFields: ['ethics.dataGovernance', 'methodology.dataCollection'],
+        sourceFields: ['ethics.data_governance', 'methodology.dataCollection'],
         isRequired: true,
       },
       {
@@ -1097,21 +1097,21 @@ export class DocumentAgent {
         name: 'storage_security',
         title: 'Storage and Security',
         sectionType: SectionType.DATA_MANAGEMENT,
-        sourceFields: ['ethics.dataGovernance'],
+        sourceFields: ['ethics.data_governance'],
         isRequired: true,
       },
       {
         name: 'access_sharing',
         title: 'Access and Sharing',
         sectionType: SectionType.DATA_MANAGEMENT,
-        sourceFields: ['ethics.dataGovernance'],
+        sourceFields: ['ethics.data_governance'],
         isRequired: true,
       },
       {
         name: 'retention',
         title: 'Retention and Disposal',
         sectionType: SectionType.DATA_MANAGEMENT,
-        sourceFields: ['ethics.dataGovernance'],
+        sourceFields: ['ethics.data_governance'],
         isRequired: true,
       },
     ];
@@ -1140,14 +1140,14 @@ export class DocumentAgent {
         name: 'risk_assessment',
         title: 'Risk Assessment',
         sectionType: SectionType.ETHICAL_CONSIDERATIONS,
-        sourceFields: ['ethics.riskAssessment'],
+        sourceFields: ['ethics.risk_assessment'],
         isRequired: true,
       },
       {
         name: 'data_management',
         title: 'Data Management',
         sectionType: SectionType.DATA_MANAGEMENT,
-        sourceFields: ['ethics.dataGovernance'],
+        sourceFields: ['ethics.data_governance'],
         isRequired: true,
       },
     ];

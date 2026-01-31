@@ -31,7 +31,7 @@ import type { Project } from '../types/project.js';
 import type { Methodology } from '../types/methodology.js';
 import type { EthicsEvaluation } from '../types/ethics.js';
 import type { ResearchResults as ResearchSynthesis } from '../types/research.js';
-import type { DocumentType } from '../types/documents.js';
+import { DocumentType } from '../types/documents.js';
 
 // Import functions for orchestration
 import { generateProtocol } from './protocol.js';

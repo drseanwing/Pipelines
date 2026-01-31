@@ -200,7 +200,7 @@ export class MethodologyAgent {
       actor: options.actor,
       sessionId: options.sessionId,
       details: {
-        projectType: project.classification.projectType,
+        projectType: project.classification.project_type,
         hasResearchData: !!project.research,
       },
     });
@@ -347,13 +347,13 @@ export class MethodologyAgent {
     feasibilityConstraints?: MethodologyDevelopmentOptions['feasibilityConstraints']
   ): Promise<StudyDesign> {
     logger.debug('Determining study design', {
-      projectType: project.classification.projectType,
+      projectType: project.classification.project_type,
       gapCount: researchData.gapAnalysis.identifiedGaps.length,
     });
 
     // Prepare input for LLM
     const input: StudyDesignInput = {
-      projectType: project.classification.projectType,
+      projectType: project.classification.project_type,
       researchQuestion: project.intake.conceptDescription,
       evidenceGaps: this.formatGapsForPrompt(researchData),
       feasibilityConstraints,
@@ -761,7 +761,7 @@ export class MethodologyAgent {
       controlType,
       requiresSampleSize: output.requiresSampleSize,
       justification: output.justification,
-      phases: this.determineStudyPhases(output.studyType, project.classification.projectType),
+      phases: this.determineStudyPhases(output.studyType, project.classification.project_type),
       arms: this.determineStudyArms(output),
     };
   }

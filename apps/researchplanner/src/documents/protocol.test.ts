@@ -242,6 +242,7 @@ const mockMethodology: Methodology = {
   data_collection: {
     data_types: ['CLINICAL', 'SURVEY'],
     includes_identifiable_data: true,
+    methods: ['survey', 'chart_review'],
     instruments: [
       {
         name: 'Numerical Rating Scale',

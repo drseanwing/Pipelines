@@ -17,7 +17,7 @@ import {
 import type { Project, Investigator } from '../types/project.js';
 import type { EthicsEvaluation } from '../types/ethics.js';
 import { callLLM } from '../utils/llm.js';
-import { FONT_CONFIG } from './styles.js';
+import { FONT_CONFIG, FONT_SIZES } from './styles.js';
 
 /**
  * HREC cover letter content mapping schema
@@ -263,8 +263,8 @@ Target Population: ${project.intake.target_population}
 Setting: ${project.intake.setting}
 Intended Outcomes: ${project.intake.intended_outcomes}
 
-${project.methodology ? `Study Design: ${project.methodology.study_design.design_type}
-Sample Size: ${project.methodology.participants.sample_size.total_required}
+${project.methodology ? `Study Design: ${project.methodology.study_design.type}
+Sample Size: ${project.methodology.participants.sample_size?.target || 'TBD'}
 Duration: ${project.methodology.timeline.total_duration}` : ''}
 
 Requirements:
@@ -629,9 +629,9 @@ function extractKeyPoints(project: Project, ethics: EthicsEvaluation): string[] 
   }
 
   // Sample size (if available)
-  if (project.methodology?.participants) {
+  if (project.methodology?.participants?.sample_size) {
     points.push(
-      `Target sample size: ${project.methodology.participants.sample_size.total_required} participants`
+      `Target sample size: ${project.methodology.participants.sample_size.target} participants`
     );
   }
 

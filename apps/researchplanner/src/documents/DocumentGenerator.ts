@@ -267,8 +267,8 @@ export class DocumentGenerator {
       })
     );
     const investigators = [
-      project.intake.principalInvestigator,
-      ...project.intake.coInvestigators,
+      project.intake.principal_investigator,
+      ...project.intake.co_investigators,
     ];
     children.push(buildInvestigatorTable(investigators));
     children.push(new Paragraph({ spacing: { after: 400 } }));
@@ -324,13 +324,13 @@ export class DocumentGenerator {
 
     // Project Summary Table
     const summaryRows = [
-      { label: 'Project Title', value: project.intake.projectTitle },
+      { label: 'Project Title', value: project.intake.project_title },
       { label: 'Project Type', value: 'Quality Improvement' },
       { label: 'Setting', value: project.intake.setting },
-      { label: 'Target Population', value: project.intake.targetPopulation },
-      { label: 'Project Lead', value: `${project.intake.principalInvestigator.title} ${project.intake.principalInvestigator.name}` },
-      { label: 'Department', value: project.intake.principalInvestigator.department },
-      { label: 'Institution', value: project.intake.principalInvestigator.institution },
+      { label: 'Target Population', value: project.intake.target_population },
+      { label: 'Project Lead', value: `${project.intake.principal_investigator.title} ${project.intake.principal_investigator.name}` },
+      { label: 'Department', value: project.intake.principal_investigator.department },
+      { label: 'Institution', value: project.intake.principal_investigator.institution },
     ];
 
     children.push(
@@ -348,15 +348,15 @@ export class DocumentGenerator {
     children.push(new Paragraph({ spacing: { after: 400 } }));
 
     // Problem Statement
-    const problemContent = `${project.intake.clinicalProblem}\n\nThis quality improvement initiative aims to address this problem through systematic process improvement methods.`;
+    const problemContent = `${project.intake.clinical_problem}\n\nThis quality improvement initiative aims to address this problem through systematic process improvement methods.`;
     children.push(...buildSection('2. Problem Statement', problemContent));
 
     // Aim Statement
-    const aimContent = project.intake.intendedOutcomes;
+    const aimContent = project.intake.intended_outcomes;
     children.push(...buildSection('3. Aim Statement', aimContent));
 
     // Background and Rationale
-    const backgroundContent = project.intake.conceptDescription;
+    const backgroundContent = project.intake.concept_description;
     children.push(...buildSection('4. Background and Rationale', backgroundContent));
 
     // Measures
@@ -421,8 +421,8 @@ export class DocumentGenerator {
       })
     );
     const investigators = [
-      project.intake.principalInvestigator,
-      ...project.intake.coInvestigators,
+      project.intake.principal_investigator,
+      ...project.intake.co_investigators,
     ];
     children.push(buildInvestigatorTable(investigators));
 
@@ -493,14 +493,14 @@ export class DocumentGenerator {
     );
 
     // A1: Project Title
-    children.push(...buildSubsection('A1. Project Title', project.intake.projectTitle));
+    children.push(...buildSubsection('A1. Project Title', project.intake.project_title));
 
     // A2: Principal Investigator
-    const piInfo = `${project.intake.principalInvestigator.title} ${project.intake.principalInvestigator.name}\n${project.intake.principalInvestigator.department}\n${project.intake.principalInvestigator.institution}\nEmail: ${project.intake.principalInvestigator.email}`;
+    const piInfo = `${project.intake.principal_investigator.title} ${project.intake.principal_investigator.name}\n${project.intake.principal_investigator.department}\n${project.intake.principal_investigator.institution}\nEmail: ${project.intake.principal_investigator.email}`;
     children.push(...buildSubsection('A2. Principal Investigator', piInfo));
 
     // A3: Administering Institution
-    children.push(...buildSubsection('A3. Administering Institution', project.intake.principalInvestigator.institution));
+    children.push(...buildSubsection('A3. Administering Institution', project.intake.principal_investigator.institution));
 
     // A4: Plain Language Summary
     const plainLanguage = this.generatePlainLanguageSummary(project, methodology);
@@ -511,7 +511,7 @@ export class DocumentGenerator {
     children.push(...buildSubsection('A5. Scientific Abstract (450 words max)', scientificAbstract));
 
     // A6: EM Relevance
-    const emRelevance = `This research addresses a critical issue in emergency medicine practice: ${project.intake.clinicalProblem.substring(0, 100)}...`;
+    const emRelevance = `This research addresses a critical issue in emergency medicine practice: ${project.intake.clinical_problem.substring(0, 100)}...`;
     children.push(...buildSubsection('A6. Emergency Medicine Relevance (100 words max)', emRelevance));
 
     // Part B: Research Plan
@@ -568,7 +568,7 @@ export class DocumentGenerator {
     );
 
     if (project.ethics) {
-      const ethicsStatus = `Ethics Pathway: ${project.ethics.ethicsPathway.pathway}\nStatus: ${project.ethics.ethicsPathway.status}\nEstimated Timeline: ${project.ethics.ethicsPathway.estimatedTimeline}`;
+      const ethicsStatus = `Ethics Pathway: ${project.ethics.ethics_pathway.pathway}\nStatus: ${project.ethics.ethics_pathway.status}\nEstimated Timeline: ${project.ethics.ethics_pathway.estimated_timeline}`;
       children.push(...buildSubsection('C1. Ethics Status', ethicsStatus));
     } else {
       children.push(...buildSubsection('C1. Ethics Status', '[Ethics review pending]'));
@@ -587,8 +587,8 @@ export class DocumentGenerator {
       })
     );
     const investigators = [
-      project.intake.principalInvestigator,
-      ...project.intake.coInvestigators,
+      project.intake.principal_investigator,
+      ...project.intake.co_investigators,
     ];
     children.push(buildInvestigatorTable(investigators));
 
@@ -636,7 +636,7 @@ export class DocumentGenerator {
       new Paragraph({
         children: [
           new TextRun({
-            text: project.intake.principalInvestigator.institution,
+            text: project.intake.principal_investigator.institution,
             font: FONT_CONFIG.PRIMARY_FONT,
             size: FONT_SIZES.HEADING2,
             bold: true,
@@ -648,7 +648,7 @@ export class DocumentGenerator {
       new Paragraph({
         children: [
           new TextRun({
-            text: project.intake.principalInvestigator.department,
+            text: project.intake.principal_investigator.department,
             font: FONT_CONFIG.PRIMARY_FONT,
             size: FONT_SIZES.NORMAL,
           }),
@@ -676,7 +676,7 @@ export class DocumentGenerator {
       new Paragraph({
         children: [
           new TextRun({
-            text: `Chair, ${ethics.ethicsPathway.approvalBody}`,
+            text: `Chair, ${ethics.ethics_pathway.approvalBody}`,
             font: FONT_CONFIG.PRIMARY_FONT,
             size: FONT_SIZES.NORMAL,
           }),
@@ -707,7 +707,7 @@ export class DocumentGenerator {
             bold: true,
           }),
           new TextRun({
-            text: `Ethics Application for "${project.intake.projectTitle}"`,
+            text: `Ethics Application for "${project.intake.project_title}"`,
             font: FONT_CONFIG.PRIMARY_FONT,
             size: FONT_SIZES.NORMAL,
           }),
@@ -766,7 +766,7 @@ export class DocumentGenerator {
       new Paragraph({
         children: [
           new TextRun({
-            text: `${project.intake.principalInvestigator.title} ${project.intake.principalInvestigator.name}`,
+            text: `${project.intake.principal_investigator.title} ${project.intake.principal_investigator.name}`,
             font: FONT_CONFIG.PRIMARY_FONT,
             size: FONT_SIZES.NORMAL,
           }),
@@ -788,7 +788,7 @@ export class DocumentGenerator {
       new Paragraph({
         children: [
           new TextRun({
-            text: project.intake.principalInvestigator.email,
+            text: project.intake.principal_investigator.email,
             font: FONT_CONFIG.PRIMARY_FONT,
             size: FONT_SIZES.NORMAL,
           }),
@@ -811,7 +811,7 @@ export class DocumentGenerator {
       })
     );
 
-    for (const form of ethics.ethicsPathway.forms) {
+    for (const form of ethics.ethics_pathway.forms) {
       children.push(
         new Paragraph({
           bullet: {
@@ -883,7 +883,7 @@ export class DocumentGenerator {
         alignment: AlignmentType.CENTER,
         children: [
           new TextRun({
-            text: project.intake.projectTitle,
+            text: project.intake.project_title,
             font: FONT_CONFIG.PRIMARY_FONT,
             size: FONT_SIZES.HEADING2,
             bold: true,
@@ -898,11 +898,11 @@ export class DocumentGenerator {
     children.push(...buildSection('Introduction', introContent));
 
     // What is the purpose of this study?
-    const purposeContent = project.intake.conceptDescription;
+    const purposeContent = project.intake.concept_description;
     children.push(...buildSection('What is the purpose of this study?', purposeContent));
 
     // Why have I been invited?
-    const invitedContent = `You have been invited because ${project.intake.targetPopulation.toLowerCase()}. We are seeking to recruit participants who meet specific eligibility criteria for this study.`;
+    const invitedContent = `You have been invited because ${project.intake.target_population.toLowerCase()}. We are seeking to recruit participants who meet specific eligibility criteria for this study.`;
     children.push(...buildSection('Why have I been invited to participate?', invitedContent));
 
     // What will participation involve?
@@ -915,7 +915,7 @@ export class DocumentGenerator {
     children.push(...buildSection('What does participation involve?', participationContent));
 
     // Possible benefits
-    const benefitsContent = `The potential benefits of this study include:\n\n${project.intake.intendedOutcomes}`;
+    const benefitsContent = `The potential benefits of this study include:\n\n${project.intake.intended_outcomes}`;
     children.push(...buildSection('What are the possible benefits?', benefitsContent));
 
     // Possible risks
@@ -927,11 +927,11 @@ export class DocumentGenerator {
     children.push(...buildSection('Privacy and Confidentiality', privacyContent));
 
     // Voluntary participation
-    const voluntaryContent = `Participation in this study is entirely voluntary. You are free to withdraw at any time without giving a reason and without any negative consequences. ${ethics.consentRequirements.withdrawalProcess}`;
+    const voluntaryContent = `Participation in this study is entirely voluntary. You are free to withdraw at any time without giving a reason and without any negative consequences. ${ethics.consent_requirements.withdrawalProcess}`;
     children.push(...buildSection('Voluntary Participation', voluntaryContent));
 
     // Contact information
-    const contactContent = `If you have any questions about this study, please contact:\n\nPrincipal Investigator: ${project.intake.principalInvestigator.title} ${project.intake.principalInvestigator.name}\nEmail: ${project.intake.principalInvestigator.email}\n${project.intake.principalInvestigator.phone ? `Phone: ${project.intake.principalInvestigator.phone}` : ''}`;
+    const contactContent = `If you have any questions about this study, please contact:\n\nPrincipal Investigator: ${project.intake.principal_investigator.title} ${project.intake.principal_investigator.name}\nEmail: ${project.intake.principal_investigator.email}\n${project.intake.principal_investigator.phone ? `Phone: ${project.intake.principal_investigator.phone}` : ''}`;
     children.push(...buildSection('Contact Information', contactContent));
 
     // Consent form section
@@ -1072,7 +1072,7 @@ export class DocumentGenerator {
     );
 
     // Overview
-    const overviewContent = `This Data Management Plan describes how data will be collected, stored, secured, and shared for the project "${project.intake.projectTitle}".`;
+    const overviewContent = `This Data Management Plan describes how data will be collected, stored, secured, and shared for the project "${project.intake.project_title}".`;
     children.push(...buildSection('1. Overview', overviewContent));
 
     // Data Description
@@ -1081,8 +1081,8 @@ export class DocumentGenerator {
 
     // Data Collection
     let dataCollectionContent = 'Data will be collected using the following methods and instruments:\n\n';
-    if (project.methodology?.dataCollection) {
-      dataCollectionContent += project.methodology.dataCollection.methods.join('\n');
+    if (project.methodology?.data_collection) {
+      dataCollectionContent += project.methodology.data_collection.methods.join('\n');
     } else {
       dataCollectionContent += '[Data collection methods to be defined]';
     }
@@ -1093,11 +1093,11 @@ export class DocumentGenerator {
     children.push(...buildSection('4. Data Storage and Security', storageContent));
 
     // Access Control
-    const accessContent = `Access to research data will be controlled through the following measures:\n\n${ethics.dataGovernance.accessControls.map(ac => `- ${ac}`).join('\n')}`;
+    const accessContent = `Access to research data will be controlled through the following measures:\n\n${ethics.data_governance.accessControls.map((ac: string) => `- ${ac}`).join('\n')}`;
     children.push(...buildSection('5. Access Control', accessContent));
 
     // Data Retention
-    const retentionContent = `Data Retention Period: ${ethics.dataGovernance.retentionPeriod}\n\nDisposal Method: ${ethics.dataGovernance.disposalMethod}`;
+    const retentionContent = `Data Retention Period: ${ethics.data_governance.retentionPeriod}\n\nDisposal Method: ${ethics.data_governance.disposalMethod}`;
     children.push(...buildSection('6. Data Retention and Disposal', retentionContent));
 
     // Data Sharing
@@ -1105,7 +1105,7 @@ export class DocumentGenerator {
     children.push(...buildSection('7. Data Sharing', sharingContent));
 
     // Responsibilities
-    const responsibilitiesContent = `The Principal Investigator (${project.intake.principalInvestigator.title} ${project.intake.principalInvestigator.name}) is responsible for:\n\n- Overall management of research data\n- Ensuring compliance with this Data Management Plan\n- Training team members on data handling procedures\n- Responding to data breach incidents`;
+    const responsibilitiesContent = `The Principal Investigator (${project.intake.principal_investigator.title} ${project.intake.principal_investigator.name}) is responsible for:\n\n- Overall management of research data\n- Ensuring compliance with this Data Management Plan\n- Training team members on data handling procedures\n- Responding to data breach incidents`;
     children.push(...buildSection('8. Responsibilities', responsibilitiesContent));
 
     // Compliance
@@ -1137,10 +1137,10 @@ export class DocumentGenerator {
     options: Required<DocumentGenerationOptions>
   ): Document {
     return new Document({
-      title: project.intake.projectTitle,
+      title: project.intake.project_title,
       subject: documentType,
       creator: options.author,
-      description: `${documentType} for ${project.intake.projectTitle}`,
+      description: `${documentType} for ${project.intake.project_title}`,
       styles: getDocumentStyles(),
       numbering: {
         config: [
@@ -1158,7 +1158,7 @@ export class DocumentGenerator {
         {
           properties: getPageProperties(),
           headers: {
-            default: this.createHeader(project.intake.projectTitle),
+            default: this.createHeader(project.intake.project_title),
           },
           footers: {
             default: this.createFooter(),
@@ -1237,7 +1237,7 @@ export class DocumentGenerator {
       {
         version,
         date: currentDate,
-        author: `${project.intake.principalInvestigator.title} ${project.intake.principalInvestigator.name}`,
+        author: `${project.intake.principal_investigator.title} ${project.intake.principal_investigator.name}`,
         description: 'Initial draft',
       },
     ];
@@ -1248,14 +1248,14 @@ export class DocumentGenerator {
   // ==========================================================================
 
   private generateIntroductionContent(project: Project): string {
-    return `${project.intake.clinicalProblem}\n\nThis study aims to address this problem by ${project.intake.intendedOutcomes.toLowerCase()}.`;
+    return `${project.intake.clinical_problem}\n\nThis study aims to address this problem by ${project.intake.intended_outcomes.toLowerCase()}.`;
   }
 
   private generateBackgroundContent(
     project: Project,
     research: ResearchStageData
   ): string {
-    let content = project.intake.conceptDescription + '\n\n';
+    let content = project.intake.concept_description + '\n\n';
 
     if (research.gapAnalysis) {
       content += 'Current gaps in the literature include:\n\n';
@@ -1363,7 +1363,7 @@ export class DocumentGenerator {
   }
 
   private generateDataCollectionContent(methodology: MethodologyStageData): string {
-    const dc = methodology.dataCollection;
+    const dc = methodology.data_collection;
     let content = `Data types: ${dc.dataTypes.join(', ')}\n\n`;
     content += `Collection methods: ${dc.methods.join(', ')}\n\n`;
     content += `Instruments: ${dc.instruments.join(', ')}\n\n`;
@@ -1391,7 +1391,7 @@ export class DocumentGenerator {
   }
 
   private generateDataManagementContent(ethics: EthicsStageData): string {
-    const dg = ethics.dataGovernance;
+    const dg = ethics.data_governance;
     let content = `Data will be stored at: ${dg.storageDetails}\n\n`;
     content += `Storage location: ${dg.storageLocation}\n\n`;
     content += `Encryption: ${dg.encryptionMethods}\n\n`;
@@ -1402,11 +1402,11 @@ export class DocumentGenerator {
   }
 
   private generateEthicsContent(ethics: EthicsStageData): string {
-    let content = `Ethics pathway: ${ethics.ethicsPathway.pathway.replace(/_/g, ' ')}\n\n`;
-    content += `Approval body: ${ethics.ethicsPathway.approvalBody}\n\n`;
-    content += `Risk level: ${ethics.riskAssessment.level}\n\n`;
-    content += `Consent type: ${ethics.consentRequirements.type.replace(/_/g, ' ')}\n\n`;
-    content += ethics.riskAssessment.overallJustification;
+    let content = `Ethics pathway: ${ethics.ethics_pathway.pathway.replace(/_/g, ' ')}\n\n`;
+    content += `Approval body: ${ethics.ethics_pathway.approvalBody}\n\n`;
+    content += `Risk level: ${ethics.risk_assessment.level}\n\n`;
+    content += `Consent type: ${ethics.consent_requirements.type.replace(/_/g, ' ')}\n\n`;
+    content += ethics.risk_assessment.overallJustification;
 
     return content;
   }
@@ -1437,7 +1437,7 @@ export class DocumentGenerator {
   } {
     return {
       outcome: methodology.outcomes.primary.name + '\n\n' + methodology.outcomes.primary.definition,
-      process: methodology.outcomes.secondary.map(o => `- ${o.name}`).join('\n') || '[Process measures to be defined]',
+      process: methodology.outcomes.secondary.map((o: any) => `- ${o.name}`).join('\n') || '[Process measures to be defined]',
       balancing: '[Balancing measures to be defined to ensure no unintended consequences]',
     };
   }
@@ -1446,7 +1446,7 @@ export class DocumentGenerator {
     project: Project,
     methodology: MethodologyStageData
   ): string {
-    return `${project.intake.clinicalProblem} This study will ${project.intake.intendedOutcomes.toLowerCase()}. We will include ${project.intake.targetPopulation} in ${project.intake.setting}. The study uses a ${methodology.studyDesign.type.toLowerCase().replace(/_/g, ' ')} design. Results will help improve care for patients in emergency settings.`;
+    return `${project.intake.clinical_problem} This study will ${project.intake.intended_outcomes.toLowerCase()}. We will include ${project.intake.target_population} in ${project.intake.setting}. The study uses a ${methodology.studyDesign.type.toLowerCase().replace(/_/g, ' ')} design. Results will help improve care for patients in emergency settings.`;
   }
 
   private generateScientificAbstract(
@@ -1455,20 +1455,20 @@ export class DocumentGenerator {
     methodology: MethodologyStageData
   ): string {
     let content = 'Background: ';
-    content += project.intake.clinicalProblem + '\n\n';
+    content += project.intake.clinical_problem + '\n\n';
 
     content += 'Aims: ';
-    content += project.intake.intendedOutcomes + '\n\n';
+    content += project.intake.intended_outcomes + '\n\n';
 
     content += 'Methods: ';
-    content += `This ${methodology.studyDesign.type.toLowerCase().replace(/_/g, ' ')} study will include ${project.intake.targetPopulation}. `;
+    content += `This ${methodology.studyDesign.type.toLowerCase().replace(/_/g, ' ')} study will include ${project.intake.target_population}. `;
     if (methodology.participants.sampleSize) {
       content += `Target sample size is ${methodology.participants.sampleSize.target}. `;
     }
     content += `The primary outcome is ${methodology.outcomes.primary.name.toLowerCase()}.\n\n`;
 
     content += 'Expected Outcomes: ';
-    content += `This research will provide evidence to ${project.intake.intendedOutcomes.toLowerCase()}.`;
+    content += `This research will provide evidence to ${project.intake.intended_outcomes.toLowerCase()}.`;
 
     return content;
   }
@@ -1487,7 +1487,7 @@ export class DocumentGenerator {
     }
 
     content += '\n\nPotential Impact:\n\n';
-    content += project.intake.intendedOutcomes;
+    content += project.intake.intended_outcomes;
 
     return content;
   }
@@ -1562,21 +1562,21 @@ export class DocumentGenerator {
     ethics: EthicsStageData
   ): string[] {
     return [
-      `I am writing to submit an ethics application for the research study titled "${project.intake.projectTitle}".`,
-      `This ${project.classification.projectType.toLowerCase()} project aims to ${project.intake.intendedOutcomes.toLowerCase()}. The study will be conducted at ${project.intake.setting}.`,
-      `The study has been assessed as ${ethics.riskAssessment.level.toLowerCase()} risk. ${ethics.riskAssessment.overallJustification}`,
-      `Consent will be obtained through ${ethics.consentRequirements.type.replace(/_/g, ' ').toLowerCase()}. ${ethics.consentRequirements.justification}`,
+      `I am writing to submit an ethics application for the research study titled "${project.intake.project_title}".`,
+      `This ${project.classification.project_type.toLowerCase()} project aims to ${project.intake.intended_outcomes.toLowerCase()}. The study will be conducted at ${project.intake.setting}.`,
+      `The study has been assessed as ${ethics.risk_assessment.level.toLowerCase()} risk. ${ethics.risk_assessment.overallJustification}`,
+      `Consent will be obtained through ${ethics.consent_requirements.type.replace(/_/g, ' ').toLowerCase()}. ${ethics.consent_requirements.justification}`,
       `Please find enclosed all required documentation for your review. I am available to address any questions or concerns the Committee may have.`,
       `Thank you for considering this application.`,
     ];
   }
 
   private generateRisksContent(ethics: EthicsStageData): string {
-    let content = `Overall risk level: ${ethics.riskAssessment.level}\n\n`;
+    let content = `Overall risk level: ${ethics.risk_assessment.level}\n\n`;
 
-    if (ethics.riskAssessment.factors.length > 0) {
+    if (ethics.risk_assessment.factors.length > 0) {
       content += 'Identified risks and mitigations:\n\n';
-      for (const factor of ethics.riskAssessment.factors) {
+      for (const factor of ethics.risk_assessment.factors) {
         content += `${factor.category}: ${factor.description}\n`;
         content += `Mitigation: ${factor.mitigation}\n\n`;
       }
@@ -1586,7 +1586,7 @@ export class DocumentGenerator {
   }
 
   private generatePrivacyContent(ethics: EthicsStageData): string {
-    const dg = ethics.dataGovernance;
+    const dg = ethics.data_governance;
     let content = `All information collected about you will be kept strictly confidential.\n\n`;
     content += `Data will be stored securely at ${dg.storageDetails} with ${dg.encryptionMethods}.\n\n`;
     content += `Access to your data will be limited to the research team through ${dg.accessControls.join(', ')}.\n\n`;
@@ -1596,7 +1596,7 @@ export class DocumentGenerator {
   }
 
   private generateDataDescriptionContent(ethics: EthicsStageData): string {
-    const dg = ethics.dataGovernance;
+    const dg = ethics.data_governance;
     let content = `Data types to be collected: ${dg.dataTypes.join(', ')}\n\n`;
     content += `Data sensitivity classification: ${dg.sensitivity}\n\n`;
     content += `Identifiable data: ${dg.sensitivity === 'HIGHLY_SENSITIVE' || dg.sensitivity === 'SENSITIVE' ? 'Yes' : 'No'}`;
@@ -1605,7 +1605,7 @@ export class DocumentGenerator {
   }
 
   private generateDataStorageContent(ethics: EthicsStageData): string {
-    const dg = ethics.dataGovernance;
+    const dg = ethics.data_governance;
     let content = `Storage location: ${dg.storageLocation}\n\n`;
     content += `Storage details: ${dg.storageDetails}\n\n`;
     content += `Encryption: ${dg.encryptionMethods}\n\n`;
@@ -1615,14 +1615,14 @@ export class DocumentGenerator {
   }
 
   private generateDataSharingContent(ethics: EthicsStageData): string {
-    const ds = ethics.dataGovernance.dataSharing;
+    const ds = ethics.data_governance.dataSharing;
     if (!ds || !ds.planned) {
       return 'No data sharing is planned for this project.';
     }
 
     let content = 'Data sharing is planned with the following parties:\n\n';
     if (ds.recipients) {
-      content += ds.recipients.map(r => `- ${r}`).join('\n');
+      content += ds.recipients.map((r: string) => `- ${r}`).join('\n');
     }
 
     if (ds.agreements && ds.agreements.length > 0) {

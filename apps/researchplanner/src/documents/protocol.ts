@@ -29,6 +29,7 @@ import {
   buildTitlePage,
   buildVersionHistory,
   buildSection,
+  markdownToParagraphs,
   buildSynopsis,
   buildReferences,
   buildBulletList,
@@ -200,7 +201,7 @@ export async function generateProtocol(
     })
   );
   const backgroundContent = research.evidence_synthesis || research.background_draft || '';
-  sections.push(...buildSection(backgroundContent));
+  sections.push(...markdownToParagraphs(backgroundContent));
 
   // 6. Aims and objectives
   sections.push(
@@ -255,7 +256,7 @@ export async function generateProtocol(
     })
   );
   if (methodology.procedures) {
-    sections.push(...buildSection(methodology.procedures.overview));
+    sections.push(...markdownToParagraphs(methodology.procedures.overview));
     if (methodology.procedures.step_by_step_protocol) {
       sections.push(
         new Paragraph({
@@ -287,7 +288,7 @@ export async function generateProtocol(
       `**Retention Period:** ${ethics.data_governance.retention_period}`,
       `**Disposal Method:** ${ethics.data_governance.disposal_method}`,
     ];
-    sections.push(...buildSection(dataManagementContent.join('\n\n')));
+    sections.push(...markdownToParagraphs(dataManagementContent.join('\n\n')));
   }
 
   // 12. Ethical considerations
@@ -371,7 +372,7 @@ Write in clear, academic prose. Maximum 250 words.`;
     temperature: 0.7,
   });
 
-  return buildSection(introText);
+  return markdownToParagraphs(introText);
 }
 
 /**
@@ -461,7 +462,7 @@ Write in clear, academic prose. Maximum 2000 words.`;
     temperature: 0.5,
   });
 
-  return buildSection(methodsText);
+  return markdownToParagraphs(methodsText);
 }
 
 /**
@@ -509,7 +510,7 @@ export function formatParticipants(participants: ParticipantSpec): Paragraph[] {
     `**Sites:** ${participants.recruitment_strategy.sites.join(', ')}`,
     `**Feasibility:** ${participants.recruitment_strategy.feasibility_justification}`,
   ];
-  sections.push(...buildSection(recruitmentDetails.join('\n\n')));
+  sections.push(...markdownToParagraphs(recruitmentDetails.join('\n\n')));
 
   // Sample size (if applicable)
   if (participants.sample_size) {
@@ -529,7 +530,7 @@ export function formatParticipants(participants: ParticipantSpec): Paragraph[] {
       `**Attrition Rate:** ${participants.sample_size.assumptions.attrition_rate}`,
       `**Justification:** ${participants.sample_size.justification}`,
     ];
-    sections.push(...buildSection(sampleSizeDetails.join('\n\n')));
+    sections.push(...markdownToParagraphs(sampleSizeDetails.join('\n\n')));
   }
 
   return sections;
@@ -563,7 +564,7 @@ export function formatOutcomes(outcomes: OutcomeSpec): Paragraph[] {
       `**Clinically Meaningful Difference:** ${outcomes.primary.clinically_meaningful_difference}`
     );
   }
-  sections.push(...buildSection(primaryDetails.join('\n\n')));
+  sections.push(...markdownToParagraphs(primaryDetails.join('\n\n')));
 
   // Secondary outcomes
   if (outcomes.secondary.length > 0) {
@@ -589,7 +590,7 @@ export function formatOutcomes(outcomes: OutcomeSpec): Paragraph[] {
         `**Measurement Tool:** ${outcome.measurement_tool}`,
         `**Timing:** ${outcome.measurement_timing}`,
       ];
-      sections.push(...buildSection(secondaryDetails.join('\n\n')));
+      sections.push(...markdownToParagraphs(secondaryDetails.join('\n\n')));
     });
   }
 
@@ -621,7 +622,7 @@ export function formatEthics(ethics: EthicsEvaluation): Paragraph[] {
     `**RGO Required:** ${ethics.ethics_pathway.requires_rgo ? 'Yes' : 'No'}`,
     `**Estimated Timeline:** ${ethics.ethics_pathway.estimated_timeline}`,
   ];
-  sections.push(...buildSection(pathwayDetails.join('\n\n')));
+  sections.push(...markdownToParagraphs(pathwayDetails.join('\n\n')));
 
   // Risk assessment
   sections.push(
@@ -650,8 +651,7 @@ export function formatEthics(ethics: EthicsEvaluation): Paragraph[] {
   if (ethics.risk_assessment.factors.length > 0) {
     sections.push(
       new Paragraph({
-        text: 'Risk Factors and Mitigation:',
-        bold: true,
+        children: [new TextRun({ text: 'Risk Factors and Mitigation:', bold: true })],
         spacing: { before: 120, after: 60 },
       })
     );
@@ -686,7 +686,7 @@ export function formatEthics(ethics: EthicsEvaluation): Paragraph[] {
   if (ethics.consent_requirements.waiver_justified && ethics.consent_requirements.waiver_justification) {
     consentDetails.push(`**Waiver Justification:** ${ethics.consent_requirements.waiver_justification}`);
   }
-  sections.push(...buildSection(consentDetails.join('\n\n')));
+  sections.push(...markdownToParagraphs(consentDetails.join('\n\n')));
 
   return sections;
 }
@@ -719,5 +719,5 @@ Write in clear, academic prose. Maximum 250 words.`;
     temperature: 0.7,
   });
 
-  return buildSection(disseminationText);
+  return markdownToParagraphs(disseminationText);
 }

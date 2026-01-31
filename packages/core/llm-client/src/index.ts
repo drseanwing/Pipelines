@@ -192,7 +192,7 @@ export class LLMClient {
     } catch {
       // Try to extract JSON from markdown code blocks
       const jsonMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-      if (jsonMatch) {
+      if (jsonMatch?.[1]) {
         return JSON.parse(jsonMatch[1].trim());
       }
 

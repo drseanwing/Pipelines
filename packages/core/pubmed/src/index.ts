@@ -226,7 +226,7 @@ export class PubMedClient {
     if (!authorList?.Author) return [];
 
     const authors = Array.isArray(authorList.Author) ? authorList.Author : [authorList.Author];
-    return authors.map(author => ({
+    return authors.map((author: any) => ({
       lastName: this.getText(author?.LastName) ?? '',
       firstName: this.getText(author?.ForeName) ?? '',
       initials: this.getText(author?.Initials) ?? '',
@@ -247,7 +247,7 @@ export class PubMedClient {
     if (!articleIdList?.ArticleId) return undefined;
 
     const ids = Array.isArray(articleIdList.ArticleId) ? articleIdList.ArticleId : [articleIdList.ArticleId];
-    const doiId = ids.find(id => id['@_IdType'] === 'doi');
+    const doiId = ids.find((id: any) => id['@_IdType'] === 'doi');
     return this.getText(doiId);
   }
 
@@ -257,7 +257,7 @@ export class PubMedClient {
     const types = Array.isArray(pubTypeList.PublicationType)
       ? pubTypeList.PublicationType
       : [pubTypeList.PublicationType];
-    return types.map(type => this.getText(type) ?? '').filter(Boolean);
+    return types.map((type: any) => this.getText(type) ?? '').filter(Boolean);
   }
 
   private extractMeshTerms(meshList: any): string[] {
@@ -267,8 +267,8 @@ export class PubMedClient {
       ? meshList.MeshHeading
       : [meshList.MeshHeading];
     return headings
-      .map(heading => this.getText(heading?.DescriptorName))
-      .filter((term): term is string => Boolean(term));
+      .map((heading: any) => this.getText(heading?.DescriptorName))
+      .filter((term: any): term is string => Boolean(term));
   }
 
   private extractKeywords(keywordList: any): string[] {
@@ -277,7 +277,7 @@ export class PubMedClient {
     const keywords = Array.isArray(keywordList.Keyword)
       ? keywordList.Keyword
       : [keywordList.Keyword];
-    return keywords.map(kw => this.getText(kw) ?? '').filter(Boolean);
+    return keywords.map((kw: any) => this.getText(kw) ?? '').filter(Boolean);
   }
 
   private async rateLimit(): Promise<void> {

@@ -9,7 +9,15 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
-import { ClassificationSchema, type Classification } from '../types/index.js';
+import type { Classification } from '../types/index.js';
+
+// Zod schema for Classification
+const ClassificationSchema = z.object({
+  project_type: z.enum(['QI', 'RESEARCH', 'HYBRID']),
+  confidence: z.number().min(0).max(1),
+  reasoning: z.string(),
+  suggested_designs: z.array(z.string()),
+});
 import type {
   CompletionOptions,
   CompletionResult,
@@ -484,7 +492,7 @@ export async function completeWithStructuredOutputFull<T>(
  *   'Reduced time to antibiotics and improved patient outcomes...'
  * );
  *
- * console.log(classification.projectType); // 'QI' | 'RESEARCH' | 'HYBRID'
+ * console.log(classification.project_type); // 'QI' | 'RESEARCH' | 'HYBRID'
  * console.log(classification.confidence);   // 0.85
  * ```
  */

@@ -71,7 +71,9 @@ export function getMissingPlaceholders(
   let match;
 
   while ((match = placeholderRegex.exec(template)) !== null) {
-    placeholders.add(match[1]);
+    if (match[1]) {
+      placeholders.add(match[1]);
+    }
   }
 
   // Find missing placeholders

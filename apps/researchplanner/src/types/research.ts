@@ -32,6 +32,9 @@ export interface ProcessedArticle {
   authors: string[];
   journal: string;
   year: number;
+  volume?: string;
+  issue?: string;
+  pages?: string;
   abstract: string;
   relevance_score: number; // 0.0 - 1.0
   key_findings: string[];
@@ -61,11 +64,19 @@ export interface GapAnalysis {
  * Spec reference: Section 3.3.3
  */
 export interface Citation {
+  id?: string; // Citation identifier (e.g., cite_1, cite_2)
   article_id: string; // Reference to ProcessedArticle
   citation_number: number;
   formatted_citation: string; // Vancouver style
   citation_style: 'VANCOUVER' | 'APA' | 'HARVARD';
+  pmid?: string;
+  doi?: string;
+  formattedCitation?: string;
+  style?: 'VANCOUVER' | 'APA' | 'HARVARD';
   bibtex?: string;
+  ris?: string;
+  inTextCitation?: string;
+  referenceNumber?: number;
 }
 
 /**

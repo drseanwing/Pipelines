@@ -149,7 +149,7 @@ const STAGE_COMPLETE_STATUSES: Record<PipelineStage, ProjectStatus[]> = {
 const STAGE_REQUIREMENTS: Record<PipelineStage, string[]> = {
   intake: [
     'intake.projectTitle',
-    'intake.projectType',
+    'intake.project_type',
     'intake.conceptDescription',
     'intake.clinicalProblem',
     'intake.targetPopulation',
@@ -175,11 +175,11 @@ const STAGE_REQUIREMENTS: Record<PipelineStage, string[]> = {
     'methodology.timeline',
   ],
   ethics: [
-    'ethics.ethicsPathway',
-    'ethics.riskAssessment',
-    'ethics.consentRequirements',
-    'ethics.dataGovernance',
-    'ethics.governanceChecklist',
+    'ethics.ethics_pathway',
+    'ethics.risk_assessment',
+    'ethics.consent_requirements',
+    'ethics.data_governance',
+    'ethics.governance_checklist',
   ],
   documents: [
     'documents.generated',
@@ -391,22 +391,22 @@ export function getRequiredApprovals(project: Project): string[] {
 
   // Add ethics-specific approvals if in ethics or later stage
   if (currentIndex >= PIPELINE_STAGES.indexOf('ethics')) {
-    if (project.ethics?.ethicsPathway) {
-      const pathway = project.ethics.ethicsPathway.pathway;
+    if (project.ethics?.ethics_pathway) {
+      const pathway = project.ethics.ethics_pathway.pathway;
 
       if (pathway === 'FULL_HREC_REVIEW' || pathway === 'HYBRID_REVIEW') {
         approvals.push('hrec_approval');
       }
 
-      if (project.ethics.ethicsPathway.requiresRgo) {
+      if (project.ethics.ethics_pathway.requires_rgo) {
         approvals.push('rgo_approval');
       }
 
       // Add site-specific approvals
-      if (project.ethics.siteRequirements) {
-        for (const site of project.ethics.siteRequirements) {
-          if (site.requiresLocalApproval) {
-            approvals.push(`site_approval_${site.siteId}`);
+      if (project.ethics.site_requirements) {
+        for (const site of project.ethics.site_requirements) {
+          if (site.requires_local_approval) {
+            approvals.push(`site_approval_${site.site_id}`);
           }
         }
       }
@@ -414,7 +414,7 @@ export function getRequiredApprovals(project: Project): string[] {
   }
 
   // Add grant-specific approvals if targeting a grant
-  if (project.intake.grantTarget) {
+  if (project.intake.grant_target) {
     approvals.push('grant_submission_approval');
   }
 
@@ -487,15 +487,15 @@ function isStageApproved(project: Project, stage: PipelineStage): boolean {
 
   switch (stage) {
     case 'intake':
-      return checkpoints.intakeApproved;
+      return checkpoints.intake_approved;
     case 'research':
-      return checkpoints.researchApproved;
+      return checkpoints.research_approved;
     case 'methodology':
-      return checkpoints.methodologyApproved;
+      return checkpoints.methodology_approved;
     case 'ethics':
-      return checkpoints.ethicsApproved;
+      return checkpoints.ethics_approved;
     case 'documents':
-      return checkpoints.documentsApproved;
+      return checkpoints.documents_approved;
     default:
       return false;
   }
@@ -562,35 +562,35 @@ export function getCurrentStage(project: Project): PipelineStage {
 function isApprovalComplete(project: Project, approval: string): boolean {
   // Check checkpoint-based approvals
   if (approval === 'intake_approval') {
-    return project.checkpoints.intakeApproved;
+    return project.checkpoints.intake_approved;
   }
   if (approval === 'research_approval') {
-    return project.checkpoints.researchApproved;
+    return project.checkpoints.research_approved;
   }
   if (approval === 'methodology_approval') {
-    return project.checkpoints.methodologyApproved;
+    return project.checkpoints.methodology_approved;
   }
   if (approval === 'ethics_approval') {
-    return project.checkpoints.ethicsApproved;
+    return project.checkpoints.ethics_approved;
   }
   if (approval === 'documents_approval') {
-    return project.checkpoints.documentsApproved;
+    return project.checkpoints.documents_approved;
   }
 
   // Check ethics-specific approvals
-  if (approval === 'hrec_approval' && project.ethics?.ethicsPathway) {
-    return project.ethics.ethicsPathway.status === 'APPROVED';
+  if (approval === 'hrec_approval' && project.ethics?.ethics_pathway) {
+    return project.ethics.ethics_pathway.status === 'APPROVED';
   }
 
-  if (approval === 'rgo_approval' && project.ethics?.ethicsPathway) {
+  if (approval === 'rgo_approval' && project.ethics?.ethics_pathway) {
     // RGO approval is typically granted alongside HREC
-    return project.ethics.ethicsPathway.status === 'APPROVED';
+    return project.ethics.ethics_pathway.status === 'APPROVED';
   }
 
   // Check site-specific approvals
-  if (approval.startsWith('site_approval_') && project.ethics?.siteRequirements) {
+  if (approval.startsWith('site_approval_') && project.ethics?.site_requirements) {
     const siteId = approval.replace('site_approval_', '');
-    const site = project.ethics.siteRequirements.find((s) => s.siteId === siteId);
+    const site = project.ethics.site_requirements.find((s: any) => s.site_id === siteId);
     return site?.status === 'APPROVED';
   }
 

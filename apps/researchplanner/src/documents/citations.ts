@@ -779,8 +779,8 @@ export function generateRIS(articles: ProcessedArticle[]): string {
     }
 
     // Keywords from key findings
-    if (article.keyFindings && article.keyFindings.length > 0) {
-      article.keyFindings.forEach((finding: string) => {
+    if (article.key_findings && article.key_findings.length > 0) {
+      article.key_findings.forEach((finding: string) => {
         lines.push(`KW  - ${finding}`);
       });
     }
@@ -903,6 +903,10 @@ export function createCitation(
 
   return {
     id: `cite_${index}`,
+    article_id: article.pmid || article.doi || `article_${index}`,
+    citation_number: index,
+    formatted_citation: formatFn(article),
+    citation_style: style,
     pmid: article.pmid,
     doi: article.doi,
     formattedCitation: formatFn(article),

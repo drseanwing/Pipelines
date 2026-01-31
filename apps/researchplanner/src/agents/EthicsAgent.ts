@@ -245,7 +245,7 @@ export class EthicsAgent {
       projectId,
       action: 'ETHICS_EVALUATION_STARTED',
       details: {
-        projectType: project.classification.projectType,
+        projectType: project.classification.project_type,
         studyDesign: project.methodology.studyDesign.type,
       },
     });
@@ -348,7 +348,7 @@ export class EthicsAgent {
   ): Promise<EthicsPathway> {
     // Build input for LLM prompt
     const pathwayInput: EthicsPathwayInput = {
-      projectType: project.classification.projectType as 'QI' | 'RESEARCH' | 'HYBRID',
+      projectType: project.classification.project_type as 'QI' | 'RESEARCH' | 'HYBRID',
       involvesHumanParticipants: this.involvesHumanParticipants(methodology),
       involvesPatientData: this.involvesPatientData(methodology),
       dataIsIdentifiable: methodology.dataCollection.includesIdentifiableData,
@@ -406,7 +406,7 @@ export class EthicsAgent {
 
     // Use utility function for basic pathway determination
     const pathwayType = determineEthicsPathwayUtil({
-      projectType: project.classification.projectType,
+      projectType: project.classification.project_type,
       riskLevel: hasVulnerablePopulation ? RiskLevel.MODERATE : RiskLevel.LOW,
       involvesHumanParticipants: this.involvesHumanParticipants(methodology),
       involvesPatientData: this.involvesPatientData(methodology),
@@ -418,7 +418,7 @@ export class EthicsAgent {
       approvalBody: this.getApprovalBody(pathwayType, project.intake.principalInvestigator.institution),
       requiresHrec: requiresHrecReview(
         hasVulnerablePopulation ? RiskLevel.MODERATE : RiskLevel.LOW,
-        project.classification.projectType
+        project.classification.project_type
       ),
       requiresRgo: pathwayType !== 'QI_REGISTRATION',
       estimatedTimeline: getEstimatedTimeline(pathwayType),

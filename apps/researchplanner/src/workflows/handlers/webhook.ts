@@ -8,6 +8,7 @@ import { createProject, updateProject, getProjectById } from '../../db/queries/p
 import { createAuditEntry } from '../../db/queries/audit.js';
 import { validateIntakeData } from '../../utils/validation.js';
 import { AuditAction } from '../../types/audit.js';
+import { ProjectStatus } from '../../types/project.js';
 
 /**
  * Handle intake webhook POST request
@@ -103,20 +104,20 @@ export async function handleCheckpointApproval(
     checkpoints[statusKey] = approved;
 
     // Determine new project status
-    let newStatus = project.status;
+    let newStatus: ProjectStatus = project.status;
     if (approved) {
       // Map stage to approved status
-      const statusMap: Record<string, string> = {
-        intake: 'INTAKE_APPROVED',
-        research: 'RESEARCH_APPROVED',
-        methods: 'METHODOLOGY_APPROVED',
-        ethics: 'ETHICS_APPROVED',
-        documents: 'DOCUMENTS_APPROVED'
+      const statusMap: Record<string, ProjectStatus> = {
+        intake: ProjectStatus.INTAKE_APPROVED,
+        research: ProjectStatus.RESEARCH_APPROVED,
+        methods: ProjectStatus.METHODOLOGY_APPROVED,
+        ethics: ProjectStatus.ETHICS_APPROVED,
+        documents: ProjectStatus.DOCUMENTS_APPROVED
       };
-      newStatus = statusMap[stage] || project.status;
+      newStatus = statusMap[stage] ?? project.status;
     } else {
       // Rejection - require revision
-      newStatus = 'REVISION_REQUIRED';
+      newStatus = ProjectStatus.REVISION_REQUIRED;
     }
 
     // Update project in database

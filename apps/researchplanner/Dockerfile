@@ -1,37 +1,50 @@
-# QI Research Pipeline - Application Dockerfile
-# Multi-stage build for optimized production image
+# QI Research Pipeline - Application Dockerfile (pnpm workspace)
+# Build context must be the monorepo root: ../../
+# Build with: docker build -f apps/researchplanner/Dockerfile -t qi-app .
 
 # =============================================================================
 # Stage 1: Builder
 # =============================================================================
 FROM node:20-alpine AS builder
 
-# Install build dependencies
+# Install pnpm and build dependencies
 RUN apk add --no-cache \
     python3 \
     make \
     g++ \
-    git
+    git \
+    && corepack enable \
+    && corepack prepare pnpm@9 --activate
 
-# Set working directory
-WORKDIR /app
+# Set working directory to monorepo root
+WORKDIR /monorepo
 
-# Copy package files first for better layer caching
-COPY package*.json ./
-COPY tsconfig*.json ./
+# Copy workspace configuration
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 
-# Install all dependencies (including devDependencies for build)
-RUN npm ci
+# Copy all workspace packages that researchplanner depends on
+COPY packages/core/checkpoint ./packages/core/checkpoint
+COPY packages/core/config ./packages/core/config
+COPY packages/core/database ./packages/core/database
+COPY packages/core/llm-client ./packages/core/llm-client
+COPY packages/core/logging ./packages/core/logging
+COPY packages/core/pubmed ./packages/core/pubmed
+COPY packages/core/retry ./packages/core/retry
+COPY packages/core/validation ./packages/core/validation
 
-# Copy source code
-COPY src/ ./src/
-COPY templates/ ./templates/
+# Copy researchplanner app
+COPY apps/researchplanner ./apps/researchplanner
 
-# Build TypeScript
-RUN npm run build
+# Install dependencies using pnpm
+# Note: Remove --frozen-lockfile temporarily to allow adding missing @types/node
+RUN pnpm install
 
-# Prune devDependencies after build
-RUN npm prune --production
+# Build all packages and the app
+RUN pnpm --filter "@pipelines/*" build
+RUN pnpm --filter qi-research-pipeline build
+
+# Prune dev dependencies and create a clean production install
+RUN pnpm --filter qi-research-pipeline --prod deploy /app
 
 # =============================================================================
 # Stage 2: Runtime
@@ -51,11 +64,8 @@ RUN addgroup -g 1001 -S appgroup && \
 # Set working directory
 WORKDIR /app
 
-# Copy built artifacts from builder stage
-COPY --from=builder --chown=appuser:appgroup /app/node_modules ./node_modules
-COPY --from=builder --chown=appuser:appgroup /app/dist ./dist
-COPY --from=builder --chown=appuser:appgroup /app/package*.json ./
-COPY --from=builder --chown=appuser:appgroup /app/templates ./templates
+# Copy production dependencies and built artifacts from builder
+COPY --from=builder --chown=appuser:appgroup /app ./
 
 # Create directories for runtime data
 RUN mkdir -p /app/data /app/logs /app/output && \
@@ -74,7 +84,7 @@ EXPOSE 3000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:3000/health || exit 1
+    CMD curl -f http://127.0.0.1:3000/health || exit 1
 
 # Use dumb-init to handle PID 1 properly
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]

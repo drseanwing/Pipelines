@@ -15,10 +15,10 @@ import {
 } from './package.js';
 import type { Project, ProjectType } from '../types/project.js';
 import type { EthicsEvaluation, EthicsPathwayType } from '../types/ethics.js';
-import type { DocumentType } from '../types/documents.js';
+import { DocumentType } from '../types/documents.js';
 
 // Test fixtures
-function createMockProject(type: ProjectType = 'RESEARCH', grantTarget?: string): Project {
+function createMockProject(type: ProjectType = ProjectType.RESEARCH, grantTarget?: string): Project {
   return {
     id: 'test-project-1',
     status: 'METHODOLOGY_APPROVED',
@@ -88,7 +88,7 @@ function createMockEthics(pathway: EthicsPathwayType = 'FULL_HREC_REVIEW'): Ethi
       waiver_justified: false,
       capacity_assessment_required: false,
       third_party_consent_required: false,
-      documentation_requirements: ['PICF'],
+      documentation_requirements: [DocumentType.PICF],
       opt_out_available: false,
       consent_process_description: 'Test consent process',
     },
@@ -122,7 +122,7 @@ describe('determineRequiredDocuments', () => {
     const result = determineRequiredDocuments(project, ethics);
 
     const hasProtocol = result.required_documents.some(
-      d => d.document_type === 'RESEARCH_PROTOCOL'
+      d => d.document_type === DocumentType.RESEARCH_PROTOCOL
     );
     expect(hasProtocol).toBe(true);
   });
@@ -146,7 +146,7 @@ describe('determineRequiredDocuments', () => {
     const result = determineRequiredDocuments(project, ethics);
 
     const hasPICF = result.required_documents.some(
-      d => d.document_type === 'PICF'
+      d => d.document_type === DocumentType.PICF
     );
     expect(hasPICF).toBe(true);
   });
@@ -158,7 +158,7 @@ describe('determineRequiredDocuments', () => {
     const result = determineRequiredDocuments(project, ethics);
 
     const hasCoverLetter = result.required_documents.some(
-      d => d.document_type === 'HREC_COVER_LETTER'
+      d => d.document_type === DocumentType.HREC_COVER_LETTER
     );
     expect(hasCoverLetter).toBe(true);
   });
@@ -170,13 +170,13 @@ describe('determineRequiredDocuments', () => {
     const result = determineRequiredDocuments(project, ethics);
 
     const hasCoverLetter = result.required_documents.some(
-      d => d.document_type === 'HREC_COVER_LETTER'
+      d => d.document_type === DocumentType.HREC_COVER_LETTER
     );
     expect(hasCoverLetter).toBe(false);
   });
 
   it('should require EMF application when grant target specified', () => {
-    const project = createMockProject('RESEARCH', 'EMF_JUMPSTART');
+    const project = createMockProject(ProjectType.RESEARCH, 'EMF_JUMPSTART');
     const ethics = createMockEthics();
 
     const result = determineRequiredDocuments(project, ethics);
@@ -194,7 +194,7 @@ describe('determineRequiredDocuments', () => {
     const result = determineRequiredDocuments(project, ethics);
 
     const hasDMP = result.required_documents.some(
-      d => d.document_type === 'DATA_MANAGEMENT_PLAN'
+      d => d.document_type === DocumentType.DATA_MANAGEMENT_PLAN
     );
     expect(hasDMP).toBe(true);
   });
@@ -206,7 +206,7 @@ describe('determineRequiredDocuments', () => {
     const result = determineRequiredDocuments(project, ethics);
 
     const hasDMP = result.required_documents.some(
-      d => d.document_type === 'DATA_MANAGEMENT_PLAN'
+      d => d.document_type === DocumentType.DATA_MANAGEMENT_PLAN
     );
     expect(hasDMP).toBe(false);
   });
@@ -217,13 +217,13 @@ describe('validateDocumentPackage', () => {
     const packageSpec = {
       package_type: 'FULL_HREC',
       required_documents: [
-        { document_type: 'RESEARCH_PROTOCOL' as DocumentType, required: true, reason: 'Test' },
-        { document_type: 'PICF' as DocumentType, required: true, reason: 'Test' },
+        { document_type: DocumentType.RESEARCH_PROTOCOL as DocumentType, required: true, reason: 'Test' },
+        { document_type: DocumentType.PICF as DocumentType, required: true, reason: 'Test' },
       ],
       optional_documents: [],
     };
 
-    const generatedTypes: DocumentType[] = ['RESEARCH_PROTOCOL', 'PICF'];
+    const generatedTypes: DocumentType[] = [DocumentType.RESEARCH_PROTOCOL, DocumentType.PICF];
 
     const result = validateDocumentPackage(packageSpec, generatedTypes);
 
@@ -235,18 +235,18 @@ describe('validateDocumentPackage', () => {
     const packageSpec = {
       package_type: 'FULL_HREC',
       required_documents: [
-        { document_type: 'RESEARCH_PROTOCOL' as DocumentType, required: true, reason: 'Test' },
-        { document_type: 'PICF' as DocumentType, required: true, reason: 'Test' },
+        { document_type: DocumentType.RESEARCH_PROTOCOL as DocumentType, required: true, reason: 'Test' },
+        { document_type: DocumentType.PICF as DocumentType, required: true, reason: 'Test' },
       ],
       optional_documents: [],
     };
 
-    const generatedTypes: DocumentType[] = ['RESEARCH_PROTOCOL'];
+    const generatedTypes: DocumentType[] = [DocumentType.RESEARCH_PROTOCOL];
 
     const result = validateDocumentPackage(packageSpec, generatedTypes);
 
     expect(result.complete).toBe(false);
-    expect(result.missing).toContain('PICF');
+    expect(result.missing).toContain(DocumentType.PICF);
   });
 
   it('should warn about missing optional documents', () => {
@@ -270,32 +270,32 @@ describe('validateDocumentPackage', () => {
 describe('getGenerationOrder', () => {
   it('should return documents in order when no dependencies', () => {
     const requirements: DocumentRequirement[] = [
-      { document_type: 'RESEARCH_PROTOCOL', required: true, reason: 'Test' },
-      { document_type: 'PICF', required: true, reason: 'Test' },
+      { document_type: DocumentType.RESEARCH_PROTOCOL, required: true, reason: 'Test' },
+      { document_type: DocumentType.PICF, required: true, reason: 'Test' },
     ];
 
     const order = getGenerationOrder(requirements);
 
     expect(order).toHaveLength(2);
-    expect(order).toContain('RESEARCH_PROTOCOL');
-    expect(order).toContain('PICF');
+    expect(order).toContain(DocumentType.RESEARCH_PROTOCOL);
+    expect(order).toContain(DocumentType.PICF);
   });
 
   it('should respect dependencies', () => {
     const requirements: DocumentRequirement[] = [
       {
-        document_type: 'PICF',
+        document_type: DocumentType.PICF,
         required: true,
         reason: 'Test',
-        depends_on: ['RESEARCH_PROTOCOL'],
+        depends_on: [DocumentType.RESEARCH_PROTOCOL],
       },
-      { document_type: 'RESEARCH_PROTOCOL', required: true, reason: 'Test' },
+      { document_type: DocumentType.RESEARCH_PROTOCOL, required: true, reason: 'Test' },
     ];
 
     const order = getGenerationOrder(requirements);
 
-    const protocolIndex = order.indexOf('RESEARCH_PROTOCOL');
-    const picfIndex = order.indexOf('PICF');
+    const protocolIndex = order.indexOf(DocumentType.RESEARCH_PROTOCOL);
+    const picfIndex = order.indexOf(DocumentType.PICF);
 
     expect(protocolIndex).toBeLessThan(picfIndex);
   });
@@ -303,25 +303,25 @@ describe('getGenerationOrder', () => {
   it('should handle multiple dependencies', () => {
     const requirements: DocumentRequirement[] = [
       {
-        document_type: 'HREC_COVER_LETTER',
+        document_type: DocumentType.HREC_COVER_LETTER,
         required: true,
         reason: 'Test',
-        depends_on: ['RESEARCH_PROTOCOL', 'PICF'],
+        depends_on: [DocumentType.RESEARCH_PROTOCOL, DocumentType.PICF],
       },
-      { document_type: 'RESEARCH_PROTOCOL', required: true, reason: 'Test' },
+      { document_type: DocumentType.RESEARCH_PROTOCOL, required: true, reason: 'Test' },
       {
-        document_type: 'PICF',
+        document_type: DocumentType.PICF,
         required: true,
         reason: 'Test',
-        depends_on: ['RESEARCH_PROTOCOL'],
+        depends_on: [DocumentType.RESEARCH_PROTOCOL],
       },
     ];
 
     const order = getGenerationOrder(requirements);
 
-    const protocolIndex = order.indexOf('RESEARCH_PROTOCOL');
-    const picfIndex = order.indexOf('PICF');
-    const letterIndex = order.indexOf('HREC_COVER_LETTER');
+    const protocolIndex = order.indexOf(DocumentType.RESEARCH_PROTOCOL);
+    const picfIndex = order.indexOf(DocumentType.PICF);
+    const letterIndex = order.indexOf(DocumentType.HREC_COVER_LETTER);
 
     expect(protocolIndex).toBeLessThan(picfIndex);
     expect(picfIndex).toBeLessThan(letterIndex);
@@ -332,7 +332,7 @@ describe('validateCrossReferences', () => {
   it('should return empty array when no issues', () => {
     const documents: GeneratedDocument[] = [
       {
-        type: 'RESEARCH_PROTOCOL',
+        type: DocumentType.RESEARCH_PROTOCOL,
         filename: 'protocol.docx',
         buffer: Buffer.from('test'),
         generated_at: new Date().toISOString(),
@@ -347,14 +347,14 @@ describe('validateCrossReferences', () => {
   it('should handle multiple documents', () => {
     const documents: GeneratedDocument[] = [
       {
-        type: 'RESEARCH_PROTOCOL',
+        type: DocumentType.RESEARCH_PROTOCOL,
         filename: 'protocol.docx',
         buffer: Buffer.from('test'),
         generated_at: new Date().toISOString(),
         checksum: '12345678',
       },
       {
-        type: 'PICF',
+        type: DocumentType.PICF,
         filename: 'picf.docx',
         buffer: Buffer.from('test'),
         generated_at: new Date().toISOString(),
@@ -374,14 +374,14 @@ describe('getPackageStats', () => {
 
     const documents: GeneratedDocument[] = [
       {
-        type: 'RESEARCH_PROTOCOL',
+        type: DocumentType.RESEARCH_PROTOCOL,
         filename: 'protocol.docx',
         buffer: Buffer.alloc(1000),
         generated_at: earlier.toISOString(),
         checksum: '12345678',
       },
       {
-        type: 'DATA_MANAGEMENT_PLAN',
+        type: DocumentType.DATA_MANAGEMENT_PLAN,
         filename: 'dmp.docx',
         buffer: Buffer.alloc(500),
         generated_at: now.toISOString(),
@@ -393,8 +393,8 @@ describe('getPackageStats', () => {
 
     expect(stats.total_documents).toBe(2);
     expect(stats.total_size_bytes).toBe(1500);
-    expect(stats.document_types).toContain('RESEARCH_PROTOCOL');
-    expect(stats.document_types).toContain('DATA_MANAGEMENT_PLAN');
+    expect(stats.document_types).toContain(DocumentType.RESEARCH_PROTOCOL);
+    expect(stats.document_types).toContain(DocumentType.DATA_MANAGEMENT_PLAN);
   });
 
   it('should handle empty document list', () => {
@@ -412,21 +412,21 @@ describe('getPackageStats', () => {
 
     const documents: GeneratedDocument[] = [
       {
-        type: 'RESEARCH_PROTOCOL',
+        type: DocumentType.RESEARCH_PROTOCOL,
         filename: 'protocol.docx',
         buffer: Buffer.from('test'),
         generated_at: time2.toISOString(),
         checksum: '12345678',
       },
       {
-        type: 'PICF',
+        type: DocumentType.PICF,
         filename: 'picf.docx',
         buffer: Buffer.from('test'),
         generated_at: time1.toISOString(),
         checksum: '87654321',
       },
       {
-        type: 'HREC_COVER_LETTER',
+        type: DocumentType.HREC_COVER_LETTER,
         filename: 'letter.docx',
         buffer: Buffer.from('test'),
         generated_at: time3.toISOString(),
